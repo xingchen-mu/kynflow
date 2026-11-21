@@ -2,8 +2,14 @@ import { nanoid } from 'nanoid';
 import type { CanvasItem, MediaKind } from '../../shared/types';
 import { commit, select, updateItems, useStore } from '../store';
 import { placeRow, viewportCenter } from '../../shared/geometry';
+import { t } from '../i18n';
 
 const get = useStore.getState;
+
+/** Short label for a media kind, for badges and chips. */
+export function kindLabel(kind: MediaKind): string {
+  return kind === 'video' ? t('视频') : kind === 'audio' ? t('音频') : kind === 'model3d' ? t('3D') : kind === 'document' ? t('文本') : t('图片');
+}
 
 export const IMAGE_LONG_SIDE = 512;
 export const VIDEO_LONG_SIDE = 640;
@@ -30,9 +36,24 @@ export function addNote() {
   select([note.id]);
   useStore.setState({ noteEditing: note.id });
 }
+/** A new prompt node at the view center (or `at`), open for typing. */
+export function addPrompt(at?: { x: number; y: number }) {
+  const { items, viewport, screen } = get();
+  const size = { w: 340, h: 200 };
+  const c = at ?? viewportCenter(viewport, screen.w, screen.h - 160);
+  const [pos] = placeRow(items, { x: c.x - size.w / 2, y: c.y - size.h / 2 }, [size]);
+  const node: CanvasItem = { id: nanoid(10), kind: 'prompt', x: Math.round(pos.x), y: Math.round(pos.y), ...size, text: '', createdAt: Date.now() };
+  commit([...items, node]);
+  select([node.id]);
+  useStore.setState({ noteEditing: node.id });
+}
+/** Text-like items: they carry text and have no asset. */
+export function isTextual(item: CanvasItem) {
+  return item.kind === 'text' || item.kind === 'prompt';
+}
 export function duplicate(ids: string[]) {
   const { items } = get();
-  const copies = cloneItems(items.filter((i) => ids.includes(i.id) && (i.asset || i.kind === 'text')), 24, 24);
+  const copies = cloneItems(items.filter((i) => ids.includes(i.id) && (i.asset || isTextual(i))), 24, 24);
   if (!copies.length) return;
   commit([...items, ...copies]);
   select(copies.map((c) => c.id));
@@ -52,6 +73,7 @@ export function cloneItems(source: CanvasItem[], dx: number, dy: number): Canvas
       taskId: undefined,
       sourceId: undefined,
       inputs: inputs.length ? inputs.map((id) => ids.get(id) ?? id) : undefined,
+      promptId: i.promptId ? (ids.get(i.promptId) ?? i.promptId) : undefined,
       createdAt: now,
     };
   });

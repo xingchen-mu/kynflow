@@ -7,6 +7,8 @@ import { loadWorkflows } from './actions';
 import { api } from '../lib/api';
 import { missingNote } from '../generation/models';
 import { setComposer, toast, useStore } from '../store';
+import { openGenerator } from '../generation/openGenerator';
+import { kindLabel } from '../canvas/items';
 import { rich, t } from '../i18n';
 import { Modal } from '../components/Modal';
 import { activeDownload, openDownloads } from '../models/actions';
@@ -30,9 +32,9 @@ function PresetCard({ p }: { p: PresetInfo }) {
   const missingCount = p.missing.nodes.length + p.missing.models.length + p.missing.notes.length;
 
   const use = () => {
-    setComposer(p.kind === 'image' ? { mode: 'image', imageModel: `custom:${p.id}` } : { mode: 'video', videoModel: `custom:${p.id}` });
+    setComposer({ mode: p.kind, workflowId: p.id });
     close();
-    requestAnimationFrame(() => document.getElementById('composer-input')?.focus());
+    openGenerator();
   };
   const copy = async () => {
     setCopying(true);
@@ -59,7 +61,7 @@ function PresetCard({ p }: { p: PresetInfo }) {
     <div className={`tpl-card ${ready ? '' : 'dim'}`}>
       <div className="tpl-thumb">
         <img src={`/api/presets/${encodeURIComponent(p.id)}/thumb`} alt="" loading="lazy" onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
-        <span className="badge">{p.kind === 'video' ? t('视频') : t('图片')}</span>
+        <span className="badge">{kindLabel(p.kind)}</span>
       </div>
       <div className="tpl-body">
         <div className="tpl-name">{t(p.name)}</div>

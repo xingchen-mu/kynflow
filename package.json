@@ -3,10 +3,10 @@
   "private": true,
   "version": "0.2.0",
   "main": "desktop/main.mjs",
-  "desktopName": "Infinode",
-  "description": "Infinite canvas for ComfyUI: generate, edit and animate images on a board, with every result linked to its inputs.",
+  "desktopName": "Kynflow",
+  "description": "Kynflow: an agent-driven infinite canvas for ComfyUI. Generate, edit and animate images on a board, with every result linked to its inputs.",
   "author": {
-    "name": "Infinode contributors",
+    "name": "Kynflow contributors",
     "email": "xingchen-mu@users.noreply.github.com"
   },
   "license": "MIT",
@@ -30,6 +30,9 @@
     "dev:noTunnel": "concurrently -k -n server,web -c cyan,magenta \"tsx watch --clear-screen=false server/index.ts\" \"vite\"",
     "tunnel": "node scripts/tunnel.mjs",
     "build": "tsc --noEmit && vite build",
+    "build:demo": "node scripts/build-demo.mjs",
+    "export:demo": "tsx scripts/export-demo.mjs",
+    "demo:rebuild": "tsx scripts/rebuild-demo-commercial.ts",
     "start": "NODE_ENV=production tsx server/index.ts",
     "desktop:dev": "npm run build && node scripts/ensure-electron.mjs && node scripts/run-electron.mjs desktop/main.mjs",
     "desktop:dir": "npm run build && node scripts/ensure-electron.mjs && electron-builder --dir",
@@ -70,7 +73,7 @@
   },
   "build": {
     "appId": "com.infinode.app",
-    "productName": "Infinode",
+    "productName": "Kynflow",
     "asar": true,
     "files": [
       "dist/**/*",
@@ -86,6 +89,7 @@
       "node_modules/@esbuild/**/*"
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.graphics-design",
       "target": [
         "dmg",
@@ -93,11 +97,13 @@
       ]
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ]
     },
     "linux": {
+      "icon": "build/icon.png",
       "category": "Graphics",
       "syncDesktopName": true,
       "target": [

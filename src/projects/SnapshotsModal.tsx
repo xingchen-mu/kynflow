@@ -15,7 +15,6 @@ function when(at: number) {
 
 export function SnapshotsModal() {
   const projectId = useStore((s) => s.projectId);
-  const projectName = useStore((s) => s.projectName);
   const [snapshots, setSnapshots] = useState<ProjectSnapshotSummary[]>([]);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,11 +78,10 @@ export function SnapshotsModal() {
           <input className="m-input" value={name} placeholder={t('快照名称，例如：角色设定完成')} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void create()} />
           <button className="btn primary" onClick={() => void create()} disabled={!projectId || busy !== null}>{busy === 'create' ? <Loader2 className="spin" /> : <Plus />}{t('保存快照')}</button>
         </div>
-        <div className="m-help">{t('当前项目：{name}', { name: projectName })}</div>
       </section>
       <section className="m-section snapshot-list">
         <div className="m-label">{t('历史快照')}</div>
-        {!snapshots.length && <div className="m-help">{t('还没有快照，先保存一个版本。')}</div>}
+        {!snapshots.length && <div className="m-help">{t('还没有快照')}</div>}
         {snapshots.map((snapshot) => (
           <div className="snapshot-row" key={snapshot.id}>
             <div className="snapshot-meta">

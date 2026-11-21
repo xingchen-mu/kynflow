@@ -119,7 +119,7 @@ async function createWindow() {
     height: 920,
     minWidth: 960,
     minHeight: 640,
-    title: 'Infinode',
+    title: 'Kynflow',
     backgroundColor: '#17191d',
     webPreferences: {
       contextIsolation: true,
@@ -156,7 +156,7 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       {
-        label: 'Infinode',
+        label: 'Kynflow',
         submenu: [
           { role: 'about' },
           { type: 'separator' },
@@ -197,7 +197,7 @@ if (!gotLock) {
       console.error(error);
       await dialog.showMessageBox({
         type: 'error',
-        title: 'Infinode 启动失败',
+        title: 'Kynflow 启动失败',
         message: error instanceof Error ? error.message : String(error),
         detail: '请查看终端输出，确认本地服务和依赖安装完整。',
       });

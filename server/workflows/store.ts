@@ -2,6 +2,8 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { CustomWorkflow } from '../../shared/types.ts';
+import { isMediaKind } from '../../shared/media.ts';
+import { describeCapability } from './capability.ts';
 import { config } from '../config.ts';
 
 const ID = /^[\w-]{4,40}$/;
@@ -25,11 +27,18 @@ export class WorkflowStore {
   }
 
   list(): CustomWorkflow[] {
-    return [...this.items.values()].sort((a, b) => a.createdAt - b.createdAt);
+    return [...this.items.values()].map((wf) => this.described(wf)).sort((a, b) => a.createdAt - b.createdAt);
   }
 
   get(id: string): CustomWorkflow | undefined {
-    return this.items.get(id);
+    const wf = this.items.get(id);
+    return wf && this.described(wf);
+  }
+
+  /** Workflows imported before capabilities existed get one here, in memory; the next save persists it. */
+  private described(wf: CustomWorkflow): CustomWorkflow {
+    if (!wf.capability) wf.capability = describeCapability(wf);
+    return wf;
   }
 
   async save(data: Omit<CustomWorkflow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<CustomWorkflow> {
@@ -39,10 +48,11 @@ export class WorkflowStore {
       id: existing?.id ?? (data.id && ID.test(data.id) && !this.items.has(data.id) ? data.id : nanoid(10)),
       name: data.name.trim().slice(0, 60),
       description: data.description?.trim().slice(0, 300) || undefined,
-      kind: data.kind === 'video' ? 'video' : 'image',
+      kind: isMediaKind(data.kind) ? data.kind : 'image',
       graph: data.graph,
       inputs: data.inputs,
       outputs: data.outputs,
+      capability: data.capability ?? describeCapability(data),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };

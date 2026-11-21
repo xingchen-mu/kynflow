@@ -1,17 +1,18 @@
 import type { Lang } from './i18n.ts';
 // Types shared by the browser app and the backend.
 
-export type MediaKind = 'image' | 'video';
+export type MediaKind = 'image' | 'video' | 'audio' | 'model3d' | 'document';
 
 export interface AssetInfo {
   id: string;
   url: string;
   kind: MediaKind;
   mime: string;
+  /** Pixel size for images and videos; 0 for audio, 3D models and documents. */
   width: number;
   height: number;
   name?: string;
-  /** Videos: seconds, once the page has read it. */
+  /** Videos and audio: seconds, once the page has read it. */
   duration?: number;
   createdAt?: number;
   usage?: AssetUsage;
@@ -166,6 +167,57 @@ export interface WorkflowInput {
   optional?: boolean;
 }
 
+/** Coarse, machine-readable class of work a workflow does. */
+export type WorkflowCapability =
+  | 'text_to_image'
+  | 'image_edit'
+  | 'inpaint'
+  | 'upscale'
+  | 'remove_background'
+  | 'text_to_video'
+  | 'image_to_video'
+  | 'video_edit'
+  | 'text_to_audio'
+  | 'text_to_3d'
+  | 'text_to_document'
+  | 'other';
+
+/** How a capability description was obtained. 'degraded': derived without full node metadata. */
+export type CapabilitySource = 'declared' | 'inferred' | 'degraded';
+
+/** Author-provided relative GPU cost; absent means unknown. */
+export type WorkflowCost = 'low' | 'medium' | 'high';
+
+/** What a run of this workflow needs, in a form the selector can filter on. */
+export interface WorkflowConstraints {
+  /** At least one image slot is required. */
+  requires_image: boolean;
+  /** A mask slot exists (the run cannot be started without one). */
+  requires_mask: boolean;
+  /** Optional on old saved capabilities; readers fall back to the input mapping. */
+  min_images?: number;
+  min_videos?: number;
+  max_images: number;
+  max_videos: number;
+  /** Width+height or an aspect dropdown can be driven by the request. */
+  controls_aspect: boolean;
+  /** A prompt slot exists with no default value. */
+  requires_prompt: boolean;
+  /** Node class types this server has no metadata for. Only enumerable when /object_info answered. */
+  unverified_nodes?: string[];
+}
+
+export interface WorkflowCapabilityInfo {
+  capability: WorkflowCapability;
+  source: CapabilitySource;
+  constraints: WorkflowConstraints;
+  /** What the inference looked at, e.g. 'image_input', 'class:remove_background'. */
+  evidence: string[];
+  /** Optional author estimates; real history is supplied separately by the agent. */
+  cost?: WorkflowCost;
+  expected_seconds?: number;
+}
+
 export interface CustomWorkflow {
   id: string;
   name: string;
@@ -176,6 +228,8 @@ export interface CustomWorkflow {
   inputs: WorkflowInput[];
   /** Nodes whose saved files are the results. */
   outputs: string[];
+  /** Absent on workflows imported before capabilities existed; filled in when read. */
+  capability?: WorkflowCapabilityInfo;
   createdAt: number;
   updatedAt: number;
 }
@@ -215,6 +269,8 @@ export interface WorkflowDraft {
   fields: WorkflowField[];
   /** Nodes that can produce result files. */
   outputCandidates: { node: string; classType: string; title?: string }[];
+  /** Output kinds the graph could produce; the editor asks the author to pick one when there are several. */
+  kindCandidates?: MediaKind[];
   issues: WorkflowIssue[];
 }
 
@@ -316,12 +372,11 @@ export interface Settings {
   comfyUrl: string;
   /** Only models whose license allows commercial use (see shared/licenses.ts); the rest are switched off. */
   commercialOnly?: boolean;
-  /** Interface language of the page that last opened Infinode: the server's messages and the assistant follow it. */
+  /** Interface language of the page that last opened Kynflow: the server's messages and the assistant follow it. */
   language?: Lang;
   /** Canvas assistant model settings. The API key itself is never returned. */
   agentModel?: string;
   agentBaseUrl?: string;
-  agentVision?: boolean;
   agentThinking?: string;
   /** For an OpenAI-compatible endpoint (agentBaseUrl): the model's context length in tokens (128000 when unset). */
   agentContextWindow?: number;
@@ -329,6 +384,10 @@ export interface Settings {
   agentReasoning?: boolean;
   /** What the assistant asks the user before doing (see ApprovalMode). */
   agentApprovalMode?: ApprovalMode;
+  /** OpenAI-compatible embeddings model used to find memory by meaning; empty means keywords only. */
+  agentEmbeddingModel?: string;
+  /** Embeddings endpoint when it differs from agentBaseUrl. */
+  agentEmbeddingBaseUrl?: string;
   agentApiKeyConfigured?: boolean;
   /** Where model downloads come from (see ModelSource). */
   modelSource?: ModelSource;
@@ -339,7 +398,40 @@ export interface Settings {
 }
 
 /** Text items hold notes such as a script or a shot list. */
-export type ItemKind = MediaKind | 'text';
+export type ItemKind = MediaKind | 'text' | 'prompt';
+
+/** One line of dialogue in a clip, kept on the cut list so the film can be re-cut. */
+export interface CutLine {
+  text: string;
+  /** Seconds into the clip; omitted means "follow where the sound stands out". */
+  from?: number;
+  to?: number;
+}
+
+/**
+ * One clip of a final cut: which board item it came from, how it was trimmed, and what was said.
+ * Stored on the final-cut item so the same edit can be re-run (recompose) without the assistant.
+ */
+export interface CutListEntry {
+  id: string;
+  /** Seconds into the clip; omitted means the whole clip. */
+  start?: number;
+  end?: number;
+  lines?: CutLine[];
+}
+
+/** Why a checked result fell short, in classes the assistant can act on. */
+export type ReviewReason = 'subject_mismatch' | 'composition' | 'subject_too_small' | 'clipping' | 'action_missing' | 'text_wrong' | 'other';
+
+/** The assistant's verdict on a result, kept on the item so later turns (and the user) can see it. */
+export interface ItemReview {
+  verdict: 'pass' | 'fail';
+  /** Only for 'fail'. */
+  reason?: ReviewReason;
+  /** One line on what is wrong, kept short. */
+  note?: string;
+  at: number;
+}
 
 export interface CanvasItem {
   id: string;
@@ -360,12 +452,23 @@ export interface CanvasItem {
   inputs?: string[];
   /** Older name for inputs[0]; kept so earlier boards still show their links. */
   sourceId?: string;
+  /** Prompt node connected by hand: its text is this item's prompt (drawn as a line). */
+  promptId?: string;
   error?: string;
   name?: string;
-  /** Text items: the note (light Markdown); `name` is its title. */
+  /** Text notes (light Markdown) and prompt nodes (plain text); `name` is the title. */
   text?: string;
   /** Image type the assistant filed it under (e.g. 全身照, 关键帧): one column per type on the board. */
   group?: string;
+  /** The assistant's check of the result; kept so later turns see what was wrong. */
+  review?: ItemReview;
+  /** The item this one was made to replace (a retried result); bounds how many retries a result gets. */
+  retryOf?: string;
+  /**
+   * Only on final-cut items: the clips used, their trim ranges and dialogue lines.
+   * Lets the user recompose the film (re-run the same edit) or redo one shot without re-editing by hand.
+   */
+  cutList?: CutListEntry[];
   createdAt: number;
 }
 
@@ -382,6 +485,16 @@ export interface Project {
   viewport: Viewport;
   createdAt: number;
   updatedAt: number;
+  /** The series it belongs to: member boards share series memory. */
+  seriesId?: string;
+}
+
+/** A series: boards that tell one story share settings and entities. */
+export interface Series {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface ProjectSummary {
@@ -390,6 +503,7 @@ export interface ProjectSummary {
   updatedAt: number;
   itemCount: number;
   cover?: string;
+  seriesId?: string;
 }
 
 export interface ProjectSnapshotSummary {
@@ -469,25 +583,98 @@ export interface AgentContext {
   limit: number;
 }
 
-/** `board`: this board only; `user`: every board (the user's own preferences). */
-export type MemoryScope = 'board' | 'user';
+/** `series`: every board of the series (shared settings); `board`: this board only; `user`: every board (the user's own preferences). */
+export type MemoryScope = 'series' | 'board' | 'user';
 /** setting: characters, style, world; decision: what was settled (and turned down, with why); preference; feedback: a correction. */
 export type MemoryType = 'setting' | 'decision' | 'preference' | 'feedback';
 
 /** Characters of all entries of a scope together: memory stays a small part of every request. */
-export const MEMORY_LIMIT: Record<MemoryScope, number> = { board: 2000, user: 1000 };
+export const MEMORY_LIMIT: Record<MemoryScope, number> = { series: 1500, board: 2000, user: 1000 };
 /** Characters of one entry, its reason included. */
 export const ENTRY_CHARS = 300;
-export const MEMORY_TYPES: Record<MemoryScope, MemoryType[]> = { board: ['setting', 'decision', 'preference'], user: ['preference', 'feedback'] };
+export const MEMORY_TYPES: Record<MemoryScope, MemoryType[]> = {
+  series: ['setting', 'decision', 'preference'],
+  board: ['setting', 'decision', 'preference'],
+  user: ['preference', 'feedback'],
+};
 
-/** One thing the assistant remembers across conversations. */
+/** The kinds of lasting things a board has: a character, a place, an object, a look. */
+export type MemoryEntityKind = 'character' | 'scene' | 'prop' | 'style';
+export const ENTITY_KINDS: MemoryEntityKind[] = ['character', 'scene', 'prop', 'style'];
+/** Characters of an entity's name and summary; the summary is shown in the prompt index, cut if longer. */
+export const ENTITY_NAME_CHARS = 40;
+export const ENTITY_SUMMARY_CHARS = 240;
+/** Active entities on a board; older unpinned ones are archived when a new one would exceed this. */
+export const MAX_ENTITIES = 30;
+
+/** What an entity points at: a board item and/or an asset in the library. */
+export interface MemoryRef {
+  itemId?: string;
+  assetId?: string;
+}
+
+/**
+ * A named thing the board keeps coming back to. Facts about it hang off it (MemoryEntry.entityId), so the
+ * prompt only carries an index and the details are read when needed.
+ */
+export interface MemoryEntity {
+  id: string;
+  kind: MemoryEntityKind;
+  name: string;
+  summary: string;
+  refs: MemoryRef[];
+  at: number;
+  by: 'assistant' | 'user';
+  /** Survives automatic cleanup when there are too many entities. */
+  pinned?: boolean;
+  /** Kept for the record but not sent to the model. */
+  archived?: boolean;
+  source?: MemorySource;
+  /** When the assistant last read it; a small hint in retrieval. */
+  lastUsedAt?: number;
+  /** How often the assistant read it. */
+  useCount?: number;
+}
+
+/** Where a memory entry came from, so the user can tell what it is based on. */
+export interface MemorySource {
+  kind: 'chat' | 'review' | 'condense' | 'user';
+  /** The panel row or board item it was derived from, when known. */
+  entryId?: string;
+  itemId?: string;
+}
+
+/**
+ * One thing the assistant remembers across conversations. Entries are append-only: an update marks the old
+ * entry invalid and adds a new one, so what was believed earlier stays visible in the history.
+ */
 export interface MemoryEntry {
   id: string;
   type: MemoryType;
   text: string;
   /** Why it holds, when that matters (a turned-down option's reason, the occasion of a correction). */
   why?: string;
+  /** When the assistant or user recorded it. */
   at: number;
+  /** When the fact became true in the work, when that differs from when it was recorded. */
+  validAt?: number;
+  /** When the fact stopped being true. Inactive entries stay in the file, out of the prompt. */
+  invalidAt?: number;
+  /** The entry that replaced this one after an update. */
+  supersededBy?: string;
+  /** Kept for the record but not sent to the model. */
+  archived?: boolean;
+  /** Survives automatic cleanup when the scope is full. */
+  pinned?: boolean;
+  /** The entity this fact is about; such facts are read on demand rather than kept in the prompt. */
+  entityId?: string;
+  source?: MemorySource;
+  /** How sure the writer was, 0..1: a summary says less than the user's own edit. */
+  confidence?: number;
+  /** When the assistant last read it; a small hint in retrieval. */
+  lastUsedAt?: number;
+  /** How often the assistant read it. */
+  useCount?: number;
   /** Written by the assistant (while working or condensing) or by the user in the memory page. */
   by: 'assistant' | 'user';
 }
@@ -496,17 +683,94 @@ export interface MemoryEntry {
 export interface AgentMemory {
   auto: boolean;
   entries: MemoryEntry[];
+  /** Series and board scopes: named things facts can hang off. Empty for the user scope. */
+  entities: MemoryEntity[];
+}
+
+/** What is stored on disk, versioned so later migrations can tell formats apart. */
+export interface AgentMemoryFile extends AgentMemory {
+  version: number;
+}
+
+/** An entry that is in effect: not archived, and not replaced by a newer one. */
+export const isActiveMemory = (e: MemoryEntry) => !e.archived && !e.invalidAt;
+/** An entity that is in effect and part of the prompt's index. */
+export const isActiveEntity = (e: MemoryEntity) => !e.archived;
+
+/**
+ * How much two pieces of text say the same thing, 0..1: character bigrams after NFKC, case, whitespace and
+ * punctuation are removed. One-character texts compare as equal or nothing.
+ */
+export function memorySimilarity(a: string, b: string): number {
+  const clean = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+  const x = clean(a);
+  const y = clean(b);
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  const grams = (s: string) => {
+    const set = new Set<string>();
+    if (s.length === 1) set.add(s);
+    for (let i = 0; i < s.length - 1; i++) set.add(s.slice(i, i + 2));
+    return set;
+  };
+  const ga = grams(x);
+  const gb = grams(y);
+  let shared = 0;
+  for (const g of ga) if (gb.has(g)) shared++;
+  return (2 * shared) / (ga.size + gb.size);
+}
+
+/**
+ * Something several boards of a series remember separately: promoting it to series memory makes every
+ * board of the series use it.
+ */
+export interface MemoryPromotion {
+  text: string;
+  type: MemoryType;
+  why?: string;
+  /** The boards it was found on. */
+  boards: { id: string; name: string }[];
+  at: number;
 }
 
 export interface AgentMemories {
+  /** Shared by every board of the series; empty when the board belongs to none. */
+  series: AgentMemory;
   board: AgentMemory;
   user: AgentMemory;
+  /** Set when the board belongs to a series: its name and member boards. */
+  seriesInfo?: SeriesInfo;
+}
+
+/** The series a board is in, as the memory page shows it. */
+export interface SeriesInfo {
+  id: string;
+  name: string;
+  /** Member boards, this one included. */
+  projects: { id: string; name: string }[];
 }
 
 /** A saved prompt the user runs as /name in the assistant's input. */
 export interface AgentCommand {
   name: string;
   prompt: string;
+}
+
+/** An outside assistant (CLI or editor) that can drive the board over MCP. */
+export interface AgentExtension {
+  id: string;
+  /** The executable looked up on PATH to tell whether it is installed. */
+  bin: string;
+  installed: boolean;
+  /** Its MCP config already mentions infinode. */
+  mcpConfigured: boolean;
+  /** Where that config lives, e.g. "~/.claude.json". */
+  configPath: string;
+  /** How to install it, empty when the client is an app rather than a CLI. */
+  install: string;
+  /** One command or a JSON snippet that connects it to this server. */
+  connect: string;
+  connectKind: 'command' | 'json';
 }
 
 export interface AgentStatus {
@@ -534,6 +798,22 @@ export interface AgentView {
   plan: boolean;
   /** Unknown until the first request (and right after condensing). */
   context: AgentContext | null;
+  /** The conversation the panel is showing. */
+  sessionId: string;
+}
+
+/** One past conversation of a board, as the history list shows it. */
+export interface AgentSessionInfo {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** The board's conversations: which one is open and the ones kept in history, newest first. */
+export interface AgentSessionList {
+  current: string;
+  sessions: AgentSessionInfo[];
 }
 
 /** Sent over /api/events as `agent`. */
@@ -546,6 +826,8 @@ export interface AgentEventData {
   todos?: AgentTodo[];
   plan?: boolean;
   context?: AgentContext | null;
-  /** The conversation was cleared. */
+  /** The conversation was cleared or another one was opened. */
   reset?: boolean;
+  /** With `reset`: the conversation now open. */
+  sessionId?: string;
 }

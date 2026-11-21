@@ -35,10 +35,38 @@ const LOADERS: Record<string, { type: 'image' | 'video' | 'mask'; field: string 
   VHS_LoadVideo: { type: 'video', field: 'video' },
 };
 
-const SAVERS = new Set(['SaveImage', 'SaveImageAdvanced', 'SaveVideo', 'VHS_VideoCombine', 'SaveAnimatedWEBP', 'SaveAnimatedPNG', 'SaveWEBM', 'Image Save']);
+const SAVERS = new Set([
+  'SaveImage',
+  'SaveImageAdvanced',
+  'SaveVideo',
+  'VHS_VideoCombine',
+  'SaveAnimatedWEBP',
+  'SaveAnimatedPNG',
+  'SaveWEBM',
+  'Image Save',
+  'SaveAudio',
+  'SaveAudioMP3',
+  'SaveAudioOpus',
+  'SaveAudioFLAC',
+  'SaveGLB',
+  'SaveOBJ',
+  'SavePLY',
+  'SaveMesh',
+  'ExportMesh',
+  'Save3DModel',
+  'SaveText',
+  'SaveText|pysssss',
+  'SaveJson',
+  'SaveMarkdown',
+  'SaveCSV',
+]);
 const PREVIEWS = new Set(['PreviewImage']);
 const VIDEO_SAVERS = new Set(['SaveVideo', 'VHS_VideoCombine', 'SaveWEBM']);
-const NOT_RESULTS = new Set(['PreviewAny', 'ShowText', 'ShowText|pysssss', 'Note', 'MarkdownNote', 'PreviewAudio', 'SaveAudio', 'MaskPreview']);
+const AUDIO_SAVERS = new Set(['SaveAudio', 'SaveAudioMP3', 'SaveAudioOpus', 'SaveAudioFLAC']);
+const MODEL_SAVERS = new Set(['SaveGLB', 'SaveOBJ', 'SavePLY', 'SaveMesh', 'ExportMesh', 'Save3DModel']);
+const TEXT_SAVERS = new Set(['SaveText', 'SaveText|pysssss', 'SaveJson', 'SaveMarkdown', 'SaveCSV']);
+const NOT_RESULTS = new Set(['PreviewAny', 'ShowText', 'ShowText|pysssss', 'Note', 'MarkdownNote', 'PreviewAudio', 'MaskPreview']);
+const KIND_ORDER: MediaKind[] = ['video', 'model3d', 'audio', 'document', 'image'];
 const HEAVY = /KSampler|SamplerCustom|Sampler(Advanced)?$|Upscaler|VideoCombine/;
 const TEXT_FIELD = /^(text|prompt|positive|text_g|text_l|value|string|positive_prompt|negative|negative_prompt|text_positive|text_negative)$/i;
 
@@ -329,12 +357,23 @@ export function detectWorkflow(graph: ComfyApiGraph, info?: ObjectInfo): Omit<Wo
   const pinnedOut = tagged('output');
   const savers = outputCandidates.filter((c) => SAVERS.has(c.classType)).map((c) => c.node);
   const outputs = pinnedOut.length ? pinnedOut : savers.length ? savers : outputCandidates.map((c) => c.node);
-  const kind: MediaKind = outputs.some((id) => VIDEO_SAVERS.has(graph[id].class_type)) ? 'video' : 'image';
+  const kinds = new Set<MediaKind>();
+  for (const id of outputs) {
+    const type = graph[id].class_type;
+    if (VIDEO_SAVERS.has(type)) kinds.add('video');
+    else if (MODEL_SAVERS.has(type)) kinds.add('model3d');
+    else if (AUDIO_SAVERS.has(type)) kinds.add('audio');
+    else if (TEXT_SAVERS.has(type)) kinds.add('document');
+    else kinds.add('image');
+  }
+  const kindCandidates = KIND_ORDER.filter((k) => kinds.has(k));
+  const kind = kindCandidates[0] ?? 'image';
 
   return {
     workflow: { name: '', kind, graph, inputs, outputs },
     fields: listFields(graph, info),
     outputCandidates,
+    kindCandidates,
   };
 }
 
@@ -551,7 +590,15 @@ export function buildCustom(wf: CustomWorkflow, req: Extract<TaskRequest, { op: 
   }
 
   const first = files.images[0];
-  const expectedSize = size ?? (first ? { width: first.width, height: first.height } : wf.kind === 'video' ? { width: 1280, height: 720 } : { width: 1024, height: 1024 });
+  const expectedSize =
+    size ??
+    (first
+      ? { width: first.width, height: first.height }
+      : wf.kind === 'video'
+        ? { width: 1280, height: 720 }
+        : wf.kind === 'image'
+          ? { width: 1024, height: 1024 }
+          : { width: 0, height: 0 });
   const stages: Stage[] = Object.keys(graph)
     .filter((id) => HEAVY.test(graph[id].class_type))
     .map((id) => ({ node: id, label: t('生成中'), weight: 1 }));

@@ -1,7 +1,7 @@
-import { ArrowDownToLine, ArrowUpToLine, ClipboardPaste, Copy, Download, Eye, ImagePlus, Info, Scan, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpToLine, ClipboardPaste, Copy, Download, Eye, ImagePlus, Info, MessageSquareText, Scan, Trash2 } from 'lucide-react';
 import { useEffect } from 'react';
-import { addFiles, download } from '../assets/actions';
-import { duplicate, reorder } from './items';
+import { addFiles, download, UPLOAD_ACCEPT } from '../assets/actions';
+import { addPrompt, duplicate, reorder } from './items';
 import { fitAll } from './view';
 import { pasteInternal, hasInternalClipboard } from './clipboard';
 import { removeItems, useStore } from '../store';
@@ -80,13 +80,16 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
             onClick={run(() => {
               const input = document.createElement('input');
               input.type = 'file';
-              input.accept = 'image/*,video/*';
+              input.accept = UPLOAD_ACCEPT;
               input.multiple = true;
               input.onchange = () => void addFiles([...(input.files ?? [])], menu.world);
               input.click();
             })}
           >
             <ImagePlus /> {t('上传到这里')}
+          </button>
+          <button className="menu-item" onClick={run(() => addPrompt(menu.world))}>
+            <MessageSquareText /> {t('添加提示词节点')}
           </button>
           <button className="menu-item" onClick={run(fitAll)}>
             <Scan /> {t('显示全部')} <kbd>⇧1</kbd>

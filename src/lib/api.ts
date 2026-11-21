@@ -5,11 +5,14 @@ import type {
   MemoryScope,
   ApprovalMode,
   AgentEventData,
+  AgentExtension,
+  AgentSessionList,
   AgentStatus,
   AgentView,
   AssetInfo,
   Capabilities,
   CustomWorkflow,
+  MemoryPromotion,
   ModelDownloadJob,
   ModelInstallInfo,
   ModelInstallPlan,
@@ -18,12 +21,14 @@ import type {
   Project,
   ProjectSnapshotSummary,
   ProjectSummary,
+  Series,
   Settings,
   Task,
   TaskRequest,
   WorkflowDraft,
 } from '../../shared/types';
 import { t } from '../i18n';
+import { demoApi, demoSubscribeEvents, isDemo } from './demo';
 
 export type WorkflowData = Omit<CustomWorkflow, 'id' | 'createdAt' | 'updatedAt'>;
 export type AgentSettingsPatch = {
@@ -31,12 +36,13 @@ export type AgentSettingsPatch = {
   agentBaseUrl?: string;
   agentApiKey?: string;
   clearAgentApiKey?: boolean;
-  agentVision?: boolean;
   agentThinking?: string;
   agentApprovalMode?: ApprovalMode;
   /** null: back to the default. */
   agentContextWindow?: number | null;
   agentReasoning?: boolean;
+  agentEmbeddingModel?: string;
+  agentEmbeddingBaseUrl?: string;
 };
 export type ModelSettingsPatch = {
   modelSource?: ModelSource;
@@ -88,7 +94,8 @@ const json = (method: string, body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export const api = {
+/** The local server, or the static fixture when this is the demo build (see demo.ts). */
+const realApi = {
   capabilities: (refresh = false) => request<Capabilities>(`/api/capabilities${refresh ? '?refresh=1' : ''}`),
 
   uploadAsset(file: Blob, name: string, size?: { width: number; height: number }) {
@@ -102,6 +109,7 @@ export const api = {
     return request<AssetInfo>('/api/assets', { method: 'POST', body: form });
   },
   assets: () => request<AssetInfo[]>('/api/assets'),
+  deleteAsset: (id: string) => request<{ ok: true }>(`/api/assets/${id}`, { method: 'DELETE' }),
 
   setAssetSize: (id: string, width: number, height: number) =>
     request<{ ok: true }>(`/api/assets/${id}/size`, json('POST', { width, height })),
@@ -109,13 +117,15 @@ export const api = {
   createTask: (req: TaskRequest, id?: string) => request<Task>('/api/tasks', json('POST', { request: req, id })),
   cancelTask: (id: string) => request<Task>(`/api/tasks/${id}/cancel`, { method: 'POST' }),
   tasks: (ids: string[]) => request<Task[]>(`/api/tasks?ids=${ids.join(',')}`),
+  /** Every task the server kept, for the task panel. */
+  taskHistory: () => request<Task[]>('/api/tasks'),
 
   projects: () => request<ProjectSummary[]>('/api/projects'),
-  createProject: (name?: string) => request<Project>('/api/projects', json('POST', { name })),
+  createProject: (name?: string, seriesId?: string) => request<Project>('/api/projects', json('POST', { name, seriesId })),
   project: (id: string) => request<Project>(`/api/projects/${id}`),
   saveProject: (
     id: string,
-    patch: Partial<Pick<Project, 'name' | 'items' | 'viewport'>> & { baseUpdatedAt?: number },
+    patch: Partial<Pick<Project, 'name' | 'items' | 'viewport' | 'seriesId'>> & { baseUpdatedAt?: number },
     keepalive = false,
   ) => {
     const init = json('PUT', patch);
@@ -125,11 +135,18 @@ export const api = {
       keepalive,
     });
   },
+  /** Moves the board into a series, or out of one with null. */
+  setProjectSeries: (id: string, seriesId: string | null) =>
+    request<{ seriesId: string | null }>(`/api/projects/${id}/series`, { ...json('PUT', { seriesId }), headers: { 'X-Infinode-Client': clientId } }),
+  series: () => request<Series[]>('/api/series'),
+  createSeries: (name?: string) => request<Series>('/api/series', json('POST', { name })),
   deleteProject: (id: string) => request<{ ok: true }>(`/api/projects/${id}`, { method: 'DELETE' }),
   projectSnapshots: (id: string) => request<ProjectSnapshotSummary[]>(`/api/projects/${id}/snapshots`),
   createSnapshot: (id: string, name?: string) => request<ProjectSnapshotSummary>(`/api/projects/${id}/snapshots`, json('POST', { name })),
   restoreSnapshot: (id: string, snapshotId: string) => request<Project>(`/api/projects/${id}/snapshots/${encodeURIComponent(snapshotId)}/restore`, { method: 'POST' }),
   branchProject: (id: string, snapshotId: string, name?: string) => request<Project>(`/api/projects/${id}/branches`, json('POST', { snapshotId, name })),
+  /** Re-run the same edit from a final-cut item's stored clip list. */
+  recompose: (id: string, itemId: string) => request<{ updatedAt: number; duration: number; cues: number }>(`/api/projects/${id}/recompose`, json('POST', { itemId })),
 
   settings: () => request<Settings>('/api/settings'),
   saveSettings: (patch: Omit<Partial<Settings>, keyof AgentSettingsPatch> & AgentSettingsPatch & ModelSettingsPatch) =>
@@ -147,7 +164,24 @@ export const api = {
   deleteWorkflow: (id: string) => request<{ ok: true }>(`/api/workflows/${id}`, { method: 'DELETE' }),
 
   agentStatus: () => request<AgentStatus>('/api/agent/status'),
+  agentExtensions: () => request<AgentExtension[]>('/api/agent/extensions'),
   agent: (projectId: string) => request<AgentView>(`/api/agent/${projectId}`),
+  /** The board's conversations: the open one and the ones kept in history. */
+  agentSessions: (projectId: string) => request<AgentSessionList>(`/api/agent/${projectId}/sessions`),
+  /** Starts a new conversation, keeping the current one in history. */
+  newAgentSession: (projectId: string) => request<AgentSessionList>(`/api/agent/${projectId}/sessions`, { method: 'POST' }),
+  /** Opens a conversation from history; later messages continue it. */
+  openAgentSession: (projectId: string, sessionId: string) =>
+    request<AgentSessionList>(`/api/agent/${projectId}/sessions/${sessionId}/open`, { method: 'POST' }),
+  /** Gives a conversation a name that stays as it grows. */
+  renameAgentSession: (projectId: string, sessionId: string, title: string) =>
+    request<AgentSessionList>(`/api/agent/${projectId}/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
+  /** Deletes a conversation; deleting the open one starts a new empty conversation. */
+  deleteAgentSession: (projectId: string, sessionId: string) =>
+    request<AgentSessionList>(`/api/agent/${projectId}/sessions/${sessionId}`, { method: 'DELETE' }),
   sendAgent: (projectId: string, body: { text: string; selection: string[]; view: { x: number; y: number } }) =>
     request<{ ok: true }>(`/api/agent/${projectId}`, json('POST', body)),
   abortAgent: (projectId: string) => request<{ ok: true }>(`/api/agent/${projectId}/abort`, { method: 'POST' }),
@@ -163,6 +197,8 @@ export const api = {
   agentMemory: (projectId: string) => request<AgentMemories>(`/api/agent/${projectId}/memory`),
   saveAgentMemory: (projectId: string, scope: MemoryScope, memory: AgentMemory) =>
     request<AgentMemory>(`/api/agent/${projectId}/memory`, json('PUT', { scope, memory })),
+  /** Board settings several boards of the series share, which the series memory does not have yet. */
+  memoryPromotions: (projectId: string) => request<MemoryPromotion[]>(`/api/agent/${projectId}/memory/promotions`),
   saveAgentCommands: (commands: AgentCommand[]) => request<AgentCommand[]>('/api/agent/commands', json('PUT', commands)),
   /** What this page shows, for outside agents (MCP) to act on "the selected items". */
   presence: (body: { projectId: string; selection: string[]; view: { x: number; y: number } }) =>
@@ -178,6 +214,8 @@ export const api = {
   cancelDownload: (id: string) => request<ModelDownloadJob>(`/api/models/downloads/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 };
 
+export const api = (isDemo ? demoApi : realApi) as typeof realApi;
+
 export interface EventHandlers {
   onTask(task: Task): void;
   onComfy(online: boolean): void;
@@ -192,7 +230,7 @@ export interface EventHandlers {
 }
 
 /** Server-sent events; EventSource reconnects on its own. */
-export function subscribeEvents(h: EventHandlers): () => void {
+function realSubscribeEvents(h: EventHandlers): () => void {
   const es = new EventSource('/api/events');
   es.addEventListener('hello', (e) => {
     h.onConnection(true);
@@ -207,3 +245,5 @@ export function subscribeEvents(h: EventHandlers): () => void {
   es.onerror = () => h.onConnection(false);
   return () => es.close();
 }
+
+export const subscribeEvents = isDemo ? demoSubscribeEvents : realSubscribeEvents;

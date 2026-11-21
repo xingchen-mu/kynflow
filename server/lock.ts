@@ -54,7 +54,7 @@ export function lockDataDir(dir: string, port: number): () => void {
       }
       if (holder.pid && holder.pid !== process.pid && alive(holder.pid)) {
         throw new DataDirInUse(
-          t('数据文件夹 {dir} 已经有一个 Infinode 服务在用（进程 {pid}，端口 {port}）。两个服务同时用一个文件夹会互相覆盖数据，先关掉那个再启动。', {
+          t('数据文件夹 {dir} 已经有一个 Kynflow 服务在用（进程 {pid}，端口 {port}）。两个服务同时用一个文件夹会互相覆盖数据，先关掉那个再启动。', {
             dir,
             pid: holder.pid,
             port: holder.port ?? '?',

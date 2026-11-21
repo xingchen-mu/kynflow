@@ -10,7 +10,7 @@ process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'infinode-agent-test-'));
 const { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } = await import('@earendil-works/pi-ai');
 const { AssetStore } = await import('../server/assets/store.ts');
 const { ProjectStore } = await import('../server/projects/store.ts');
-const { AgentHub, clearOldToolUse, compactThreshold } = await import('../server/agent/runtime.ts');
+const { AgentHub, clearOldToolUse, compactError, compactThreshold } = await import('../server/agent/runtime.ts');
 type Task = import('../shared/types.ts').Task;
 type TaskRequest = import('../shared/types.ts').TaskRequest;
 type AgentEventData = import('../shared/types.ts').AgentEventData;
@@ -103,6 +103,59 @@ const say = (text: string, input = 100): AssistantMessage => ({
   usage: { input, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: input + 20, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.001 } },
 });
 
+test('a new conversation keeps the old one in history, and opening it brings it back', async () => {
+  const board = await projects.create('sessions');
+  const tasks = fakeTasks();
+  const { hub } = await hubWith(tasks, [say('第一段'), say('第二段')]);
+  await hub.send(board.id, { text: '画只猫' });
+  const first = await settled(hub, board.id);
+  const firstId = first.sessionId;
+
+  const afterNew = await hub.newSession(board.id);
+  assert.notEqual(afterNew.current, firstId);
+  assert.deepEqual(afterNew.sessions.map((s) => s.title), ['画只猫']);
+  assert.deepEqual((await hub.view(board.id)).entries, []);
+
+  await hub.send(board.id, { text: '画只狗' });
+  await settled(hub, board.id);
+  const list = await hub.listSessions(board.id);
+  assert.equal(list.sessions.length, 2);
+  assert.ok(list.sessions.some((s) => s.title === '画只狗'));
+
+  const reopened = await hub.openSession(board.id, firstId);
+  assert.equal(reopened.current, firstId);
+  const view = await hub.view(board.id);
+  assert.equal(view.sessionId, firstId);
+  assert.ok(view.entries.some((e) => e.kind === 'user' && e.text === '画只猫'));
+  const back = await hub.listSessions(board.id);
+  assert.equal(back.sessions.length, 2, 'the newer conversation stayed in history');
+  assert.ok(back.sessions.some((s) => s.title === '画只狗'));
+});
+
+test('a conversation can be renamed, keeps its name when it grows, and can be deleted', async () => {
+  const board = await projects.create('session-manage');
+  const tasks = fakeTasks();
+  const { hub } = await hubWith(tasks, [say('第一段'), say('第二段'), say('第三段')]);
+  await hub.send(board.id, { text: '画只猫' });
+  const first = await settled(hub, board.id);
+  const id = first.sessionId;
+
+  const renamed = await hub.renameSession(board.id, id, '  猫的定稿  ');
+  assert.equal(renamed.sessions[0].title, '猫的定稿');
+  await hub.send(board.id, { text: '再画一张' });
+  await settled(hub, board.id);
+  assert.equal((await hub.listSessions(board.id)).sessions[0].title, '猫的定稿', 'a chosen name survives later saves');
+
+  await hub.newSession(board.id);
+  assert.equal((await hub.listSessions(board.id)).sessions[0].title, '猫的定稿');
+  const after = await hub.deleteSession(board.id, id);
+  assert.deepEqual(after.sessions, []);
+
+  const empty = await hub.view(board.id);
+  const next = await hub.deleteSession(board.id, empty.sessionId);
+  assert.notEqual(next.current, empty.sessionId, 'deleting the open conversation starts a new one');
+});
+
 test('a tool call edits the board, and the conversation survives a restart', async () => {
   const board = await projects.create('notes');
   const tasks = fakeTasks();
@@ -124,6 +177,31 @@ test('a tool call edits the board, and the conversation survives a restart', asy
     ['user', 'tool', '写好了'],
   );
   assert.equal(reloaded.usage.tokens, view.usage.tokens);
+});
+
+test('the same call three times in a row is refused, so a looping model cannot keep going', async () => {
+  const board = await projects.create('circle');
+  const tasks = fakeTasks();
+  const { hub } = await hubWith(tasks, [
+    fauxAssistantMessage(fauxToolCall('read_board', {})),
+    fauxAssistantMessage(fauxToolCall('read_board', {})),
+    fauxAssistantMessage(fauxToolCall('read_board', {})),
+    say('看过了'),
+  ]);
+  await hub.send(board.id, { text: '看看画布' });
+  const view = await settled(hub, board.id);
+  const rows = view.entries.filter((e) => e.kind === 'tool');
+  assert.equal(rows.length, 3);
+  assert.equal(rows[2].summary, '重复调用，没有执行');
+});
+
+test('a long tool error reaches the model cut short, and the whole one goes to the log', () => {
+  const long = `ffmpeg 出错：${'x'.repeat(900)}`;
+  const cut = compactError(long);
+  assert.ok(cut.startsWith(long.slice(0, 600)));
+  assert.ok(cut.length < long.length);
+  assert.match(cut, /后面的内容太长/);
+  assert.equal(compactError('找不到这个节点'), '找不到这个节点');
 });
 
 test('the assistant can require approval before every canvas write', async () => {
@@ -152,6 +230,36 @@ test('the assistant can require approval before every canvas write', async () =>
   assert.equal((await projects.get(board.id))!.items.length, 0);
   await hub.approve(board.id, card.id, true);
   assert.equal((await projects.get(board.id))!.items[0]?.name, '待确认');
+});
+
+test('a memory write waits for approval when every write does', async () => {
+  const board = await projects.create('approval memory');
+  const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-approval', input: ['text'], contextWindow: 200_000 }] });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('remember', { changes: [{ action: 'add', scope: 'board', type: 'setting', text: '主角叫林晚' }] })),
+    say('等你确认'),
+  ]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const deps = {
+    projects,
+    tasks: fakeTasks(),
+    assets,
+    workflows: () => [],
+    capabilities: async () => ({ comfyOnline: true, comfyUrl: '', features: {}, models: {} }),
+    changed: () => {},
+    commercialOnly: () => false,
+  } as unknown as ConstructorParameters<typeof AgentHub>[0];
+  const settings = { agentConfig: () => ({ model: 'faux/faux-approval', vision: false, thinking: 'low', approvalMode: 'always' as const }) } as ConstructorParameters<typeof AgentHub>[3];
+  const hub = new AgentHub(deps, () => {}, { models, model: 'faux/faux-approval' }, settings);
+  await hub.init();
+  await hub.send(board.id, { text: '记住主角叫林晚' });
+  const waiting = await settled(hub, board.id);
+  const card = waiting.entries.find((e) => e.kind === 'tool' && e.status === 'waiting');
+  assert.ok(card && card.kind === 'tool' && card.approval);
+  assert.equal((await hub.memories(board.id)).board.entries.length, 0);
+  await hub.approve(board.id, card.id, true);
+  assert.equal((await hub.memories(board.id)).board.entries[0]?.text, '主角叫林晚');
 });
 
 test('approved videos are queued, and after a restart the agent still carries on when they finish', async () => {
@@ -442,6 +550,44 @@ test('condensing on request keeps what the user asked for, shows the summary in 
   await assert.rejects(hub.condense(board.id), /对话还很短/);
 });
 
+test('switching to prompts shown first applies from the next call, and keeps the conversation going', async () => {
+  const board = await projects.create('switch mode');
+  const tasks = fakeTasks();
+  const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-switch', input: ['text'], contextWindow: 200_000 }] });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '一只猫' })),
+    say('画好了'),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '一只狗' })),
+    say('提示词在等你确认'),
+  ]);
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const deps = {
+    projects,
+    tasks,
+    assets,
+    workflows: () => [],
+    capabilities: async () => ({ comfyOnline: true, comfyUrl: '', features: {}, models: {} }),
+    changed: () => {},
+    commercialOnly: () => false,
+  } as unknown as ConstructorParameters<typeof AgentHub>[0];
+  let mode: 'risky' | 'prompts' = 'risky';
+  const settings = { agentConfig: () => ({ model: 'faux/faux-switch', vision: false, thinking: 'low', approvalMode: mode }) } as unknown as ConstructorParameters<typeof AgentHub>[3];
+  const hub = new AgentHub(deps, () => {}, { models, model: 'faux/faux-switch' }, settings);
+  await hub.init();
+  await hub.send(board.id, { text: '画只猫' });
+  await settled(hub, board.id);
+  assert.equal(tasks.created.length, 1, 'generated straight away');
+
+  mode = 'prompts';
+  hub.refreshRuntime();
+  await hub.send(board.id, { text: '再画只狗' });
+  const view = await settled(hub, board.id);
+  assert.equal(tasks.created.length, 1, 'the second waits on its card');
+  assert.ok(view.entries.some((e) => e.kind === 'tool' && e.status === 'waiting' && e.approval?.prompts?.[0]?.text === '一只狗'));
+  assert.ok(view.entries.some((e) => e.kind === 'user' && e.text === '画只猫'), 'the conversation was not reset');
+});
+
 test('with prompts shown first, an image waits on a card with its prompt, and is generated from the edited one', async () => {
   const board = await projects.create('prompts');
   const tasks = fakeTasks();
@@ -511,7 +657,7 @@ test('with prompts shown first, a video batch card lists every prompt, and edits
   );
 });
 
-test('what the assistant remembers is in the instructions of every new conversation, and stays put within one', async () => {
+test('what the assistant remembers is in every new conversation, and refreshes after a write within one', async () => {
   const board = await projects.create('remember');
   let same = '';
   const { hub } = await hubWith(fakeTasks(), [
@@ -528,7 +674,7 @@ test('what the assistant remembers is in the instructions of every new conversat
   assert.equal((await hub.memories(board.id)).board.entries[0]?.text, '主角叫林晚，短发');
   await hub.send(board.id, { text: '继续' });
   await settled(hub, board.id);
-  assert.doesNotMatch(same, /\[m[\w-]+ · 设定\] 主角叫林晚/, 'the instructions stay as they were, for the cache');
+  assert.match(same, /\[m[\w-]+ · 设定 · \d{2}-\d{2} · 助手\] 主角叫林晚，短发/, 'the next message carries the fresh memory');
 
   let fresh = '';
   const { hub: restarted } = await hubWith(fakeTasks(), [
@@ -539,7 +685,7 @@ test('what the assistant remembers is in the instructions of every new conversat
   ]);
   await restarted.send(board.id, { text: '你好' });
   await settled(restarted, board.id);
-  assert.match(fresh, /\[m[\w-]+ · 设定\] 主角叫林晚，短发/);
+  assert.match(fresh, /\[m[\w-]+ · 设定 · \d{2}-\d{2} · 助手\] 主角叫林晚，短发/);
 });
 
 test('an edit in the memory page reaches the assistant with the next message', async () => {
@@ -557,7 +703,7 @@ test('an edit in the memory page reaches the assistant with the next message', a
   await hub.saveMemory(board.id, 'user', { auto: true, entries: [{ id: '', type: 'preference', text: '不要字幕', at: 0, by: 'user' }] });
   await hub.send(board.id, { text: '出一段视频' });
   await settled(hub, board.id);
-  assert.match(next, /用户在记忆页改过记忆，以这一份为准.*不要字幕/);
+  assert.match(next, /记忆有更新（用户在记忆页改过，或助手刚写入），以这一份为准.*不要字幕/);
   await hub.saveMemory(board.id, 'user', { auto: true, entries: [] });
 });
 
@@ -603,7 +749,7 @@ test('condensing writes down what lasts, notes where the work stands, and the ne
 
   await hub.send(board.id, { text: '继续' });
   await settled(hub, board.id);
-  assert.match(after, /\[m[\w-]+ · 决定\] 画风用日系动画（用户否掉了写实）/, 'the instructions after condensing carry the new memory');
+  assert.match(after, /\[m[\w-]+ · 决定 · \d{2}-\d{2} · 助手 · 可信度 0\.6\] 画风用日系动画（用户否掉了写实）/, 'the instructions after condensing carry the new memory');
 });
 
 test('deleting a board deletes its memory, and leaves the user\'s', async () => {
@@ -646,6 +792,7 @@ test('the to-do list shows in the panel without a row of its own, rides along wi
   assert.deepEqual((await restarted.view(board.id)).todos, steps);
   await restarted.clear(board.id);
   assert.deepEqual((await restarted.view(board.id)).todos, []);
+  assert.deepEqual((await restarted.listSessions(board.id)).sessions, [], 'clear deletes the conversation instead of keeping it');
 });
 
 test('a question card waits for a click; the answer goes to the assistant as the user message, and writing past it skips it', async () => {
@@ -687,7 +834,11 @@ test('plan mode lets the assistant read but not change the board, until the user
   const { hub, emitted } = await hubWith(fakeTasks(), [
     (context) => {
       told = JSON.stringify(context.messages.at(-1));
-      return fauxAssistantMessage([fauxToolCall('read_board', {}), fauxToolCall('write_note', { title: '剧本', content: '先写了再说' })]);
+      return fauxAssistantMessage([
+        fauxToolCall('read_board', {}),
+        fauxToolCall('write_note', { title: '剧本', content: '先写了再说' }),
+        fauxToolCall('remember', { changes: [{ action: 'add', scope: 'board', type: 'setting', text: '主角叫林晚' }] }),
+      ]);
     },
     fauxAssistantMessage(fauxToolCall('present_plan', { plan: '## 方案\n1. 写剧本\n2. 出三张关键帧' })),
     say('方案在等你确认'),
@@ -707,11 +858,13 @@ test('plan mode lets the assistant read but not change the board, until the user
     [
       ['read_board', 'done'],
       ['write_note', 'error'],
+      ['remember', 'error'],
       ['present_plan', 'waiting'],
     ],
   );
   assert.equal((await projects.get(board.id))!.items.length, 0, 'nothing written in plan mode');
-  const card = tools[2];
+  assert.equal((await hub.memories(board.id)).board.entries.length, 0, 'memory is a write too');
+  const card = tools[3];
   assert.ok(card.kind === 'tool' && card.approval?.body?.includes('出三张关键帧') && card.approval.confirm === '按这个做' && card.approval.reject === '再改改', JSON.stringify(card));
 
   await hub.approve(board.id, card.id, true);

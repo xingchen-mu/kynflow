@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Canvas } from './canvas/Canvas';
 import { MaskPanel, resizeBrush, undoStroke, useMask } from './editors/MaskEditor';
 import { OutpaintPanel } from './editors/OutpaintEditor';
-import { addFiles } from './assets/actions';
+import { acceptsFile, addFiles } from './assets/actions';
 import { duplicate } from './canvas/items';
 import { fitAll, revealItems } from './canvas/view';
 import { loadWorkflows } from './workflows/actions';
@@ -12,12 +12,15 @@ import { api, subscribeEvents } from './lib/api';
 import { CLIP_MARKER, copySelection, hasInternalClipboard, pasteInternal } from './canvas/clipboard';
 import { bootstrap, flushSave, onProjectEvent, refreshProject, setupAutosave, syncTasks } from './projects/sync';
 import { applyTask, redo, removeItems, select, setShowLinks, toast, undo, updateItems, useStore, zoomAt } from './store';
-import { AgentPanel, onAgentEvent, refreshAgent } from './assistant/AgentPanel';
-import { Composer } from './generation/Composer';
+import { AgentDock, onAgentEvent, refreshAgent, toggleAgent } from './assistant/AgentPanel';
+import { NodeGenerator } from './generation/NodeGenerator';
 import { LeftToolbar } from './canvas/LeftToolbar';
+import { AssetDock, toggleAssets } from './assets/AssetDock';
 import { Lightbox } from './assets/Lightbox';
 import { Modals } from './Modals';
-import { TopBar } from './projects/TopBar';
+import { TopBar, ZoomControl } from './projects/TopBar';
+import { DemoBanner } from './components/DemoBanner';
+import { isDemo } from './lib/demo';
 import { lang, t } from './i18n';
 
 function Toasts() {
@@ -48,6 +51,12 @@ function isTyping(target: EventTarget | null) {
 
 function onKeyDown(e: KeyboardEvent) {
   const st = useStore.getState();
+  const modKey = e.metaKey || e.ctrlKey;
+  if (modKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    useStore.setState({ modal: st.modal?.type === 'palette' ? null : { type: 'palette' } });
+    return;
+  }
   if (st.modal || st.lightboxId) return; // dialogs handle their own keys
   const typing = isTyping(e.target);
   if (e.code === 'Space' && !typing) {
@@ -85,6 +94,12 @@ function onKeyDown(e: KeyboardEvent) {
   } else if (mod && key === 'a') {
     e.preventDefault();
     select(st.items.map((i) => i.id));
+  } else if (mod && key === 'j') {
+    e.preventDefault();
+    toggleAgent();
+  } else if (mod && key === 'b') {
+    e.preventDefault();
+    toggleAssets();
   } else if (mod && key === 'd') {
     e.preventDefault();
     duplicate(st.selection);
@@ -130,7 +145,7 @@ function onKeyUp(e: KeyboardEvent) {
 
 function onPaste(e: ClipboardEvent) {
   if (useStore.getState().modal) return;
-  const files = [...(e.clipboardData?.files ?? [])].filter((f) => /^(image|video)\//.test(f.type));
+  const files = [...(e.clipboardData?.files ?? [])].filter(acceptsFile);
   if (files.length) {
     e.preventDefault();
     void addFiles(files);
@@ -155,7 +170,7 @@ export function App() {
       .catch(() => {});
     void loadWorkflows();
     void refreshCaps();
-    if (localStorage.getItem('infinode:onboarding') !== 'done') {
+    if (!isDemo && localStorage.getItem('infinode:onboarding') !== 'done') {
       window.setTimeout(() => {
         if (!useStore.getState().modal) useStore.setState({ modal: { type: 'onboarding' } });
       }, 450);
@@ -233,15 +248,24 @@ export function App() {
 
   const editing = useStore((s) => s.editing);
   return (
-    <>
-      <Canvas />
+    <div className="app-shell">
       <TopBar />
-      <LeftToolbar />
-      {editing ? editing.kind === 'outpaint' ? <OutpaintPanel /> : <MaskPanel /> : <Composer />}
-      <AgentPanel />
+      {isDemo && <DemoBanner />}
+      <div className="app-body">
+        <div className="workspace">
+          <LeftToolbar />
+          <AssetDock />
+          <div className="canvas-area">
+            <Canvas />
+            {editing ? editing.kind === 'outpaint' ? <OutpaintPanel /> : <MaskPanel /> : <NodeGenerator />}
+            <ZoomControl />
+          </div>
+        </div>
+        <AgentDock />
+      </div>
       <Lightbox />
       <Modals />
       <Toasts />
-    </>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { Check, Clipboard, GitBranch, Link2, Sparkles } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CanvasItem, TaskRequest } from '../../shared/types';
-import { inputIds } from './items';
+import { inputIds, kindLabel } from './items';
 import { Modal } from '../components/Modal';
 import { select, toast, useStore } from '../store';
 import { t } from '../i18n';
@@ -50,7 +50,12 @@ export function ItemDetailsModal({ itemId }: { itemId: string }) {
   const presets = useStore((s) => s.presets);
   const close = () => useStore.setState({ modal: null });
   const request = item?.request;
-  const inputs = useMemo(() => (item ? inputIds(item).map((id) => allItems.find((x) => x.id === id)).filter((x): x is CanvasItem => Boolean(x)) : []), [allItems, item]);
+  const inputs = useMemo(() => {
+    if (!item) return [];
+    const ids = [...inputIds(item)];
+    if (item.promptId && !ids.includes(item.promptId)) ids.push(item.promptId);
+    return ids.map((id) => allItems.find((x) => x.id === id)).filter((x): x is CanvasItem => Boolean(x));
+  }, [allItems, item]);
   const workflow = request?.op === 'custom' ? workflows.find((w) => w.id === request.workflow) ?? presets.find((w) => w.id === request.workflow) : undefined;
   if (!item) return null;
 
@@ -60,7 +65,7 @@ export function ItemDetailsModal({ itemId }: { itemId: string }) {
         <div className="m-label"><Sparkles /> {item.name || t('未命名节点')}</div>
         <div className="detail-rows">
           <div className="lb-row"><span>{t('节点 ID')}</span><code>{item.id}</code></div>
-          <div className="lb-row"><span>{t('类型')}</span><span>{item.kind === 'text' ? t('文本') : item.kind === 'image' ? t('图片') : t('视频')}</span></div>
+          <div className="lb-row"><span>{t('类型')}</span><span>{item.kind === 'prompt' ? t('提示词') : item.kind === 'text' ? t('文本') : kindLabel(item.kind)}</span></div>
           {item.asset && <div className="lb-row"><span>{t('尺寸')}</span><span>{item.asset.width} × {item.asset.height}</span></div>}
           {item.taskId && <div className="lb-row"><span>{t('任务')}</span><code>{item.taskId}</code></div>}
         </div>
@@ -91,7 +96,12 @@ export function ItemDetailsModal({ itemId }: { itemId: string }) {
         </section>
       )}
 
-      {!request && item.kind === 'text' && <section className="m-section"><div className="m-label">{t('文本内容')}</div><div className="detail-prompt">{item.text || t('空文本')}</div></section>}
+      {!request && (item.kind === 'text' || item.kind === 'prompt') && (
+        <section className="m-section">
+          <div className="m-label">{item.kind === 'prompt' ? t('提示词') : t('文本内容')}</div>
+          <div className="detail-prompt">{item.text || t('空文本')}</div>
+        </section>
+      )}
     </Modal>
   );
 }

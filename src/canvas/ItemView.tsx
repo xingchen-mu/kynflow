@@ -1,4 +1,4 @@
-import { AlertTriangle, Loader2, RotateCcw, Trash2, Volume2, X } from 'lucide-react';
+import { AlertTriangle, Box, Download, FileText, Loader2, MessageSquareText, Music, RotateCcw, Trash2, Volume2, X } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { thumbUrl } from '../../shared/media';
 import type { CanvasItem, Task } from '../../shared/types';
@@ -91,7 +91,9 @@ function VideoView({ item, full }: { item: CanvasItem; full: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   const asset = item.asset!;
   const [hover, setHover] = useState(false);
-  const live = full || hover;
+  // Some builds ship the clip without a thumbnail (the static demo does): fall back to its own frame.
+  const [noThumb, setNoThumb] = useState(false);
+  const live = full || hover || noThumb;
   useEffect(() => {
     if (hover) void ref.current?.play().catch(() => {});
     else ref.current?.pause();
@@ -106,7 +108,7 @@ function VideoView({ item, full }: { item: CanvasItem; full: boolean }) {
           muted
           loop
           playsInline
-          preload="metadata"
+          preload={noThumb ? 'auto' : 'metadata'}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             const duration = Math.round(v.duration * 10) / 10;
@@ -119,7 +121,7 @@ function VideoView({ item, full }: { item: CanvasItem; full: boolean }) {
           }}
         />
       ) : (
-        <img src={thumbUrl(asset.url)} alt={item.name ?? ''} draggable={false} decoding="async" />
+        <img src={thumbUrl(asset.url)} alt={item.name ?? ''} draggable={false} decoding="async" onError={() => setNoThumb(true)} />
       )}
       <div className="video-badge">
         {item.request?.op === 'video.generate' && <Volume2 />}
@@ -153,6 +155,120 @@ function NoteEditor({ item }: { item: CanvasItem }) {
   );
 }
 
+function PromptEditor({ item }: { item: CanvasItem }) {
+  const [text, setText] = useState(item.text ?? '');
+  const done = () => {
+    useStore.setState({ noteEditing: null });
+    if (text === (item.text ?? '')) return;
+    updateItems((items) => items.map((i) => (i.id === item.id ? { ...i, text } : i)));
+  };
+  return (
+    <div
+      className="prompt editing"
+      data-ui
+      onPointerDown={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) done();
+      }}
+    >
+      <div className="prompt-head">
+        <MessageSquareText />
+        <span>{t('提示词')}</span>
+      </div>
+      <textarea
+        className="note-input"
+        data-scrollable
+        autoFocus
+        value={text}
+        placeholder={t('写一段提示词，例如：一只橘猫坐在窗台上，暖色夕阳')}
+        onChange={(e) => setText(e.target.value)}
+      />
+    </div>
+  );
+}
+
+/** A prompt node: plain text that can be wired to pictures and clips; double-click to edit. */
+function PromptView({ item }: { item: CanvasItem }) {
+  const editing = useStore((s) => s.noteEditing === item.id);
+  const selected = useStore((s) => s.selection.includes(item.id));
+  if (editing) return <PromptEditor item={item} />;
+  return (
+    <div className="prompt">
+      <div className="prompt-head">
+        <MessageSquareText />
+        <span>{t('提示词')}</span>
+      </div>
+      <div className="prompt-body" {...(selected ? { 'data-scrollable': true } : {})}>
+        {item.text || <span className="note-empty">{t('双击编辑提示词')}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Audio, 3D files and documents have no frame: show what they are and how to open them. */
+function MediaName({ item }: { item: CanvasItem }) {
+  return <span className="media-name">{item.name ?? item.asset!.url.split('/').pop()}</span>;
+}
+
+function AudioView({ item }: { item: CanvasItem }) {
+  return (
+    <div className="audio-view" onPointerDown={(e) => e.stopPropagation()}>
+      <Music className="media-icon" />
+      <MediaName item={item} />
+      <audio src={item.asset!.url} controls preload="metadata" />
+    </div>
+  );
+}
+
+function Model3DView({ item }: { item: CanvasItem }) {
+  const ext = item.asset!.url.split('.').pop()?.toUpperCase();
+  return (
+    <div className="model-view" onPointerDown={(e) => e.stopPropagation()}>
+      <Box className="media-icon" />
+      <MediaName item={item} />
+      <small>{ext} · {t('3D 模型')}</small>
+      <a className="media-open" href={item.asset!.url} download title={t('下载模型')}>
+        <Download />
+      </a>
+    </div>
+  );
+}
+
+function DocumentView({ item }: { item: CanvasItem }) {
+  const asset = item.asset!;
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(asset.url)
+      .then((r) => r.text())
+      .then((value) => {
+        if (!live) return;
+        let shown = value.slice(0, 4096);
+        if (/json/.test(asset.mime)) {
+          try {
+            shown = JSON.stringify(JSON.parse(value), null, 2).slice(0, 4096);
+          } catch {
+            /* show the raw text */
+          }
+        }
+        setText(shown);
+      })
+      .catch(() => live && setText(''));
+    return () => {
+      live = false;
+    };
+  }, [asset.url, asset.mime]);
+  return (
+    <div className="doc-view" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="doc-head">
+        <FileText className="media-icon" />
+        <MediaName item={item} />
+      </div>
+      <pre>{text === null ? t('正在读取…') : text || t('空文件')}</pre>
+    </div>
+  );
+}
+
 /** A text item: title and light Markdown; double-click to edit. */
 function NoteView({ item }: { item: CanvasItem }) {
   const editing = useStore((s) => s.noteEditing === item.id);
@@ -170,10 +286,14 @@ function NoteView({ item }: { item: CanvasItem }) {
 }
 
 export const ItemView = memo(function ItemView({ item, task, full = true }: { item: CanvasItem; task?: Task; full?: boolean }) {
-  if (item.kind === 'text') {
+  if (item.kind === 'text' || item.kind === 'prompt') {
     return (
-      <div className="item item-note" data-item-id={item.id} style={{ transform: `translate(${item.x}px, ${item.y}px)`, width: item.w, height: item.h }}>
-        <NoteView item={item} />
+      <div
+        className={`item ${item.kind === 'prompt' ? 'item-prompt' : 'item-note'}`}
+        data-item-id={item.id}
+        style={{ transform: `translate(${item.x}px, ${item.y}px)`, width: item.w, height: item.h }}
+      >
+        {item.kind === 'prompt' ? <PromptView item={item} /> : <NoteView item={item} />}
       </div>
     );
   }
@@ -186,8 +306,14 @@ export const ItemView = memo(function ItemView({ item, task, full = true }: { it
       {item.asset ? (
         item.kind === 'image' ? (
           <ImageView item={item} full={full} />
-        ) : (
+        ) : item.kind === 'video' ? (
           <VideoView item={item} full={full} />
+        ) : item.kind === 'audio' ? (
+          <AudioView item={item} />
+        ) : item.kind === 'model3d' ? (
+          <Model3DView item={item} />
+        ) : (
+          <DocumentView item={item} />
         )
       ) : (
         <Placeholder item={item} task={task} />

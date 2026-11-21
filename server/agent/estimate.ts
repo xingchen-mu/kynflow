@@ -51,6 +51,12 @@ export function imageEstimate(history: Task[], request: TaskRequest): number {
   return runs.length ? Math.round(median(runs.slice(-20).map(took))) : IMAGE_DEFAULT;
 }
 
+/** Measured GPU time for one imported workflow; other workflows never contribute samples. */
+export function customEstimate(history: Task[], workflow: string): { seconds: number; samples: number } | undefined {
+  const runs = finished(history).filter((t) => t.request.op === 'custom' && t.request.workflow === workflow).slice(-20);
+  return runs.length ? { seconds: Math.round(median(runs.map(took))), samples: runs.length } : undefined;
+}
+
 /** "约 12 分钟" / "约 40 秒" (in the server's language). */
 export function roughly(seconds: number): string {
   return seconds >= 90 ? t('约 {n} 分钟', { n: Math.round(seconds / 60) }) : t('约 {n} 秒', { n: Math.max(5, Math.round(seconds / 5) * 5) });

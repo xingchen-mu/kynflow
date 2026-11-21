@@ -1,0 +1,29 @@
+{
+  "title": "Kynflow 演示模式",
+  "summary": "一张参考图 → 换主体、消除、重绘、扩图、视频；每个结果都连回它的来源。",
+  "notice": "演示模式：结果是本机 ComfyUI 预生成的真实产物，页面不连接 GPU。",
+  "demo": {
+    "prompt": "把 @图1 中的猫换成一只戴着红色针织围巾的柴犬，其他保持不变",
+    "reference": "demo1",
+    "image": "demo/assets/FxE9eSMavgZ3.webp",
+    "video": "demo/assets/aPBIr4oZ6Y_I.mp4"
+  },
+  "images": [
+    "demo/assets/7XXsp0fvjC4R.webp",
+    "demo/assets/FxE9eSMavgZ3.webp",
+    "demo/assets/SAssJ6mrr0b5.webp",
+    "demo/assets/Q4TlwxHETUBF.webp",
+    "demo/assets/OQzTZxAkXzEb.webp",
+    "demo/assets/ptDqRWP_yKak.webp",
+    "demo/assets/eSycmloBa1Cd.webp",
+    "demo/assets/zitmM8UiwU5W.webp",
+    "demo/assets/wUFzDjo7pND0.webp",
+    "demo/assets/ae4aDWq0wici.webp",
+    "demo/assets/DCaykODy4nog.webp"
+  ],
+  "licenses": [
+    "Z-Image Turbo · Apache 2.0",
+    "Qwen-Image 2.1 · Qwen Research License（仅研究评估，不可商用）",
+    "MiniMax H3 · H3 Community License（有条件商用，不覆盖美/欧/英/韩）"
+  ]
+}

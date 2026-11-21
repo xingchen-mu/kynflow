@@ -4,6 +4,7 @@ import { type Rect, displaySize, intersects, visibleRect } from '../../shared/ge
 import { aspectValue } from '../generation/models';
 import { useStore } from '../store';
 import { t } from '../i18n';
+import { CARD_SIZE } from '../../shared/media';
 
 interface Pt {
   x: number;
@@ -47,6 +48,7 @@ export function linkPath(a: Rect, b: Rect) {
 
 /** What an input was used for, shown on its link. */
 function linkLabel(out: CanvasItem, input: CanvasItem, index: number, total: number): string {
+  if (input.kind === 'prompt') return t('提示词');
   const r = out.request;
   if (!r) return input.kind === 'video' ? t('截帧') : '';
   switch (r.op) {
@@ -74,10 +76,19 @@ function linkLabel(out: CanvasItem, input: CanvasItem, index: number, total: num
   }
 }
 
-/** Size of the result the composer would produce from `source`, for the dashed output slot. */
+/** Size of the result the generator would produce from `source`, for the dashed output slot. */
 function slotSize(source: CanvasItem) {
   const { composer } = useStore.getState();
-  const srcRatio = source.asset ? source.asset.width / source.asset.height : source.w / source.h;
+  if (composer.mode !== 'image' && composer.mode !== 'video') {
+    const card = CARD_SIZE[composer.mode];
+    return { w: card.width, h: card.height };
+  }
+  const srcRatio =
+    source.asset && source.asset.width > 0 && source.asset.height > 0
+      ? source.asset.width / source.asset.height
+      : source.w > 0 && source.h > 0
+        ? source.w / source.h
+        : 1;
   if (composer.mode === 'image') {
     const ratio = aspectValue(composer.imageAspect) ?? srcRatio;
     return displaySize(ratio, 1, IMAGE_LONG_SIDE);
@@ -131,7 +142,9 @@ export function Links({
 
   if (showLinks) {
     for (const out of items) {
-      const ids = inputIds(out);
+      const ids = [...inputIds(out)];
+      // A prompt node attached by hand (not part of the request) still draws its line.
+      if (out.promptId && !ids.includes(out.promptId)) ids.push(out.promptId);
       const outVisible = intersects(out, view) || selected.has(out.id) || hovered === out.id;
       if (!outVisible && !ids.some((id) => selected.has(id) || hovered === id)) continue;
       ids.forEach((id, index) => {
@@ -147,7 +160,7 @@ export function Links({
   }
 
   let slot: Rect | null = null;
-  const slotSource = pendingOutput && byId.get(pendingOutput.from);
+  const slotSource = pendingOutput?.from ? byId.get(pendingOutput.from) : undefined;
   if (pendingOutput && slotSource) {
     slot = slotRect(slotSource, pendingOutput.at);
     views.push({ key: 'slot', ...linkPath(slotSource, slot), label: '', state: 'draft' });
@@ -184,16 +197,6 @@ export function Links({
             {v.label}
           </div>
         ))}
-      {slot && layer === 'above' && (
-        <div className="slot" style={{ transform: `translate(${slot.x}px, ${slot.y}px)`, width: slot.w, height: slot.h }}>
-          <div className="slot-text">
-            {t('在下方输入提示词')}
-            <br />
-            {t('结果会生成在这里')}
-            <small>{t('Esc 取消')}</small>
-          </div>
-        </div>
-      )}
     </>
   );
 }

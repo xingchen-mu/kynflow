@@ -1,0 +1,359 @@
+{
+  "id": "demo",
+  "name": "演示画布 · 一张参考图，长出整条创作链",
+  "items": [
+    {
+      "id": "demo-note",
+      "kind": "text",
+      "x": -760,
+      "y": -1320,
+      "w": 620,
+      "h": 460,
+      "name": "这张画布是怎么来的",
+      "text": "这张画布上的每一个结果，都是在自己的 ComfyUI 上真实生成后导出的。\n\n最左边是一张文生图的参考图。从它出发：换主体、消除、局部重绘、扩图，各出一个结果；再从换主体那张继续抠图、超清、再换一次主体；另有一段由参考图生成的视频。\n\n每条线表示「这个结果是从哪张图来的」，所以任何一步都能单独重来：不满意的一面，改一张就行，不用重做全片。",
+      "createdAt": 1794735451076
+    },
+    {
+      "id": "demo1",
+      "kind": "image",
+      "x": 0,
+      "y": 0,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "7XXsp0fvjC4R",
+        "url": "demo/assets/7XXsp0fvjC4R.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1184,
+        "height": 896,
+        "name": "zimage_00002_.png"
+      },
+      "createdAt": 1793440549830,
+      "request": {
+        "op": "image.generate",
+        "model": "zimage",
+        "prompt": "一只坐在木桌上的橘猫，旁边是红苹果和陶瓷杯，清晨窗光，浅景深，写实摄影",
+        "aspect": "4:3",
+        "quality": "1k"
+      },
+      "name": "文生图"
+    },
+    {
+      "id": "demo2",
+      "kind": "image",
+      "x": 760,
+      "y": -720,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "FxE9eSMavgZ3",
+        "url": "demo/assets/FxE9eSMavgZ3.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1184,
+        "height": 896,
+        "name": "qwen_00002_.png"
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo1"
+      ],
+      "request": {
+        "op": "image.generate",
+        "model": "qwen",
+        "prompt": "把 @图1 中的猫换成一只戴着红色针织围巾的柴犬，其他保持不变",
+        "aspect": "auto",
+        "quality": "1k",
+        "images": [
+          "7XXsp0fvjC4R"
+        ]
+      },
+      "name": "换主体/参考图编辑"
+    },
+    {
+      "id": "demo3",
+      "kind": "image",
+      "x": 760,
+      "y": -240,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "SAssJ6mrr0b5",
+        "url": "demo/assets/SAssJ6mrr0b5.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1184,
+        "height": 896,
+        "name": "erase_00003_.png"
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo1"
+      ],
+      "request": {
+        "op": "image.erase",
+        "image": "7XXsp0fvjC4R",
+        "mask": "7XXsp0fvjC4R"
+      },
+      "name": "消除"
+    },
+    {
+      "id": "demo4",
+      "kind": "image",
+      "x": 760,
+      "y": 240,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "Q4TlwxHETUBF",
+        "url": "demo/assets/Q4TlwxHETUBF.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1184,
+        "height": 896,
+        "name": "inpaint_00005_.png"
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo1"
+      ],
+      "request": {
+        "op": "image.inpaint",
+        "image": "7XXsp0fvjC4R",
+        "mask": "7XXsp0fvjC4R",
+        "prompt": "一个陶土花盆，里面种着绿色多肉植物"
+      },
+      "name": "局部重绘"
+    },
+    {
+      "id": "demo5",
+      "kind": "image",
+      "x": 760,
+      "y": 720,
+      "w": 600,
+      "h": 347,
+      "asset": {
+        "id": "OQzTZxAkXzEb",
+        "url": "demo/assets/OQzTZxAkXzEb.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1824,
+        "height": 1056,
+        "name": "outpaint_00003_.png"
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo1"
+      ],
+      "request": {
+        "op": "image.outpaint",
+        "image": "7XXsp0fvjC4R",
+        "left": 320,
+        "top": 0,
+        "right": 320,
+        "bottom": 160
+      },
+      "name": "扩图"
+    },
+    {
+      "id": "demo7",
+      "kind": "image",
+      "x": 1520,
+      "y": -1200,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "ptDqRWP_yKak",
+        "url": "demo/assets/ptDqRWP_yKak.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1184,
+        "height": 896,
+        "name": "cutout_00001_.png"
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo2"
+      ],
+      "request": {
+        "op": "image.removeBg",
+        "image": "FxE9eSMavgZ3"
+      },
+      "name": "抠图"
+    },
+    {
+      "id": "demo8",
+      "kind": "image",
+      "x": 1520,
+      "y": -720,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "eSycmloBa1Cd",
+        "url": "demo/assets/eSycmloBa1Cd.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 2368,
+        "height": 1792,
+        "name": "upscale_00001_.png"
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo2"
+      ],
+      "request": {
+        "op": "image.upscale",
+        "image": "FxE9eSMavgZ3",
+        "scale": 2
+      },
+      "name": "超清"
+    },
+    {
+      "id": "demo9",
+      "kind": "image",
+      "x": 1520,
+      "y": -240,
+      "w": 512,
+      "h": 387,
+      "asset": {
+        "id": "zitmM8UiwU5W",
+        "url": "demo/assets/zitmM8UiwU5W.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1184,
+        "height": 896
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo2"
+      ],
+      "request": {
+        "op": "image.generate",
+        "model": "qwen",
+        "prompt": "把图中的柴犬换成一只戴红色贝雷帽的柯基，其他保持不变",
+        "aspect": "auto",
+        "quality": "1k",
+        "images": [
+          "FxE9eSMavgZ3"
+        ]
+      },
+      "name": "换主体/参考图编辑"
+    },
+    {
+      "id": "demo10",
+      "kind": "image",
+      "x": -760,
+      "y": -600,
+      "w": 387,
+      "h": 512,
+      "asset": {
+        "id": "wUFzDjo7pND0",
+        "url": "demo/assets/wUFzDjo7pND0.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 896,
+        "height": 1184,
+        "name": "qwen_00001_.png"
+      },
+      "createdAt": 1793440549830,
+      "request": {
+        "op": "image.generate",
+        "model": "qwen",
+        "prompt": "一张极简风格的咖啡店海报，中央是一杯拿铁，顶部写着“秋日限定”",
+        "aspect": "3:4",
+        "quality": "1k"
+      },
+      "name": "文生图"
+    },
+    {
+      "id": "demo11",
+      "kind": "image",
+      "x": -760,
+      "y": 0,
+      "w": 512,
+      "h": 512,
+      "asset": {
+        "id": "ae4aDWq0wici",
+        "url": "demo/assets/ae4aDWq0wici.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1024,
+        "height": 1024
+      },
+      "createdAt": 1793440549830,
+      "request": {
+        "op": "image.generate",
+        "model": "zimage",
+        "prompt": "一只戴着飞行员护目镜的柯基犬，坐在复古双翼飞机的驾驶舱里",
+        "aspect": "1:1",
+        "quality": "1k"
+      },
+      "name": "文生图"
+    },
+    {
+      "id": "demo12",
+      "kind": "image",
+      "x": -760,
+      "y": 560,
+      "w": 512,
+      "h": 286,
+      "asset": {
+        "id": "DCaykODy4nog",
+        "url": "demo/assets/DCaykODy4nog.webp",
+        "kind": "image",
+        "mime": "image/png",
+        "width": 1376,
+        "height": 768
+      },
+      "createdAt": 1793440549830,
+      "request": {
+        "op": "image.generate",
+        "model": "zimage",
+        "prompt": "a tiny glass greenhouse on a mossy rock, macro photo, morning dew",
+        "aspect": "16:9",
+        "quality": "1k"
+      },
+      "name": "文生图"
+    },
+    {
+      "id": "demo6",
+      "kind": "video",
+      "x": 760,
+      "y": 1150,
+      "w": 640,
+      "h": 501,
+      "asset": {
+        "id": "aPBIr4oZ6Y_I",
+        "url": "demo/assets/aPBIr4oZ6Y_I.mp4",
+        "kind": "video",
+        "mime": "video/mp4",
+        "width": 736,
+        "height": 576
+      },
+      "createdAt": 1793440549830,
+      "inputs": [
+        "demo1"
+      ],
+      "request": {
+        "op": "video.generate",
+        "model": "minimax",
+        "prompt": "橘猫慢慢抬头看向窗外，尾巴轻轻摆动。声音：安静的室内，轻轻的呼噜声，远处鸟叫",
+        "aspect": "auto",
+        "quality": "480p",
+        "duration": 3,
+        "images": [
+          "7XXsp0fvjC4R"
+        ]
+      },
+      "name": "视频"
+    }
+  ],
+  "viewport": {
+    "zoom": 0.33743299758264106,
+    "x": -60.30405609729553,
+    "y": 374.74643414585694
+  },
+  "createdAt": 1793440549831,
+  "updatedAt": 1794735451076
+}

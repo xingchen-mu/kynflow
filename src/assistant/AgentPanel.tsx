@@ -1,31 +1,52 @@
-import { ArrowUp, Bell, Brain, CircleAlert, CircleCheck, ClipboardList, FoldVertical, Hourglass, Loader2, RotateCcw, Sparkles, Square, SquarePen, StickyNote, X } from 'lucide-react';
+import { ArrowUp, Bell, Box, Bot, Brain, ChevronDown, CircleAlert, CircleCheck, ClipboardList, Copy, FileText, FoldVertical, History, Hourglass, Loader2, MessageSquareText, Music, Pencil, Puzzle, RefreshCw, RotateCcw, Search, Sparkles, Square, SquarePen, StickyNote, Terminal, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { thumbUrl } from '../../shared/media';
-import type { AgentCommand, AgentContext, AgentEntry, AgentEventData, AgentQuestion, AgentStatus, AgentTodo, AgentUsage } from '../../shared/types';
+import type { AgentCommand, AgentContext, AgentEntry, AgentEventData, AgentExtension, AgentQuestion, AgentSessionInfo, AgentStatus, AgentTodo, AgentUsage, ApprovalMode } from '../../shared/types';
 import { builtinCommand, expandCommand, parseCommand } from '../../shared/commands';
 import { ensureVisible, revealItems } from '../canvas/view';
+import { kindLabel } from '../canvas/items';
 import { api } from '../lib/api';
 import { boundsOf, viewportCenter } from '../../shared/geometry';
 import { redoneVersion } from '../../shared/frames';
 import { savePending } from '../projects/sync';
 import { select, toast, useStore } from '../store';
 import { Markdown } from '../components/Markdown';
+import { Dropdown } from '../components/Dropdown';
 import { lang, t } from '../i18n';
 import { CommandsModal, SlashMenu, type SlashItem, slashItems } from './Commands';
 import { MemoryModal } from './Memory';
 import { QuestionCard } from './Question';
 import { Todos } from './Todos';
 
-const OPEN_KEY = 'infinode:agent';
+const WIDTH_KEY = 'infinode:agent-width';
+const SOURCE_KEY = 'infinode:agent-source';
+
+type AgentSource = 'builtin' | 'extensions';
+
+const SOURCES: { id: AgentSource; label: string }[] = [
+  { id: 'builtin', label: t('内置助手') },
+  { id: 'extensions', label: t('扩展') },
+];
+
+function savedSource(): AgentSource {
+  // Older builds had one tab per external assistant; they all live in the extension list now.
+  return localStorage.getItem(SOURCE_KEY) === 'builtin' || !localStorage.getItem(SOURCE_KEY) ? 'builtin' : 'extensions';
+}
+
+function setSource(source: AgentSource) {
+  useAgent.setState({ source });
+  localStorage.setItem(SOURCE_KEY, source);
+}
 
 /** Tools whose results are new board items worth bringing into view. */
 const CREATES = new Set(['generate_image', 'generate_video', 'run_workflow']);
 
-const SUGGESTIONS = [t('把选中的图各做一段 5 秒视频'), t('用选中的人物图，生成他在雨夜街头的三张不同景别的照片'), t('看看选中的图有没有问题，有问题就重新生成')];
+const SUGGESTIONS = [t('把选中的图做成 5 秒视频'), t('雨夜街头：人物三连拍'), t('检查选中的图，有问题就重生成')];
 
 interface AgentState {
   open: boolean;
+  source: AgentSource;
   status: AgentStatus | null;
   /** Board the conversation belongs to. */
   projectId: string | null;
@@ -39,12 +60,20 @@ interface AgentState {
   context: AgentContext | null;
   /** The user's saved /commands. */
   commands: AgentCommand[];
+  /** Outside assistants detected on this machine, null until loaded. */
+  extensions: AgentExtension[] | null;
+  extensionsLoading: boolean;
   /** The "condense now" bar: what to keep in particular, and whether it is running. */
   condense: { focus: string; busy: boolean } | null;
+  /** The conversation the panel is showing. */
+  sessionId: string;
+  /** The board's other conversations, newest first. */
+  sessions: AgentSessionInfo[];
 }
 
 export const useAgent = create<AgentState>(() => ({
-  open: localStorage.getItem(OPEN_KEY) === 'open',
+  open: true,
+  source: savedSource(),
   status: null,
   projectId: null,
   entries: [],
@@ -55,19 +84,23 @@ export const useAgent = create<AgentState>(() => ({
   plan: false,
   context: null,
   commands: [],
+  extensions: null,
+  extensionsLoading: false,
   condense: null,
+  sessionId: '',
+  sessions: [],
 }));
-
-function markOpen(open: boolean) {
-  // Bottom panels make room for the side panel.
-  document.body.classList.toggle('agent-open', open);
-}
-markOpen(useAgent.getState().open);
 
 export function toggleAgent(open = !useAgent.getState().open) {
   useAgent.setState({ open });
-  localStorage.setItem(OPEN_KEY, open ? 'open' : 'closed');
-  markOpen(open);
+}
+
+/** Opens the panel with a replication brief ready to send; selected items go along as the references. */
+export function startReplication() {
+  toggleAgent(true);
+  useAgent.setState({
+    draft: t('帮我复刻这条爆款内容：先读 viral_replication 手册，再按里面的步骤拆解我选的参考素材。拆解、一致性锁和分段方案先给我看，确认后再出图、再生成视频。'),
+  });
 }
 
 /** Loads the open board's conversation (on opening the panel, switching boards and reconnecting). */
@@ -75,9 +108,20 @@ export async function refreshAgent() {
   const projectId = useStore.getState().projectId;
   if (!projectId || !useAgent.getState().open) return;
   try {
-    const [status, view] = await Promise.all([api.agentStatus(), api.agent(projectId)]);
+    const [status, view, list] = await Promise.all([api.agentStatus(), api.agent(projectId), api.agentSessions(projectId)]);
     if (useStore.getState().projectId !== projectId) return;
-    useAgent.setState({ status, projectId, entries: view.entries, running: view.running, usage: view.usage, todos: view.todos, plan: view.plan, context: view.context });
+    useAgent.setState({
+      status,
+      projectId,
+      entries: view.entries,
+      running: view.running,
+      usage: view.usage,
+      todos: view.todos,
+      plan: view.plan,
+      context: view.context,
+      sessionId: view.sessionId,
+      sessions: list.sessions,
+    });
   } catch (err) {
     useAgent.setState({
       status: { ready: false, model: '', vision: false, reason: (err as Error).message },
@@ -88,6 +132,8 @@ export async function refreshAgent() {
       todos: [],
       plan: false,
       context: null,
+      sessionId: '',
+      sessions: [],
     });
   }
 }
@@ -100,11 +146,31 @@ export async function loadCommands() {
   }
 }
 
+/** Re-scans this machine for installed assistants and their MCP config. */
+export async function loadExtensions() {
+  useAgent.setState({ extensionsLoading: true });
+  try {
+    useAgent.setState({ extensions: await api.agentExtensions(), extensionsLoading: false });
+  } catch (err) {
+    useAgent.setState({ extensions: [], extensionsLoading: false });
+    toast(t('检测本机助手失败：{message}', { message: (err as Error).message }), 'error');
+  }
+}
+
 export function onAgentEvent(e: AgentEventData) {
   const s = useAgent.getState();
   if (e.projectId !== s.projectId) return;
   if (e.reset) {
-    useAgent.setState({ entries: [], running: false, usage: { tokens: 0, cost: 0 }, todos: [], plan: false, context: null });
+    useAgent.setState({
+      entries: [],
+      running: false,
+      usage: { tokens: 0, cost: 0 },
+      todos: [],
+      plan: false,
+      context: null,
+      ...(e.sessionId ? { sessionId: e.sessionId } : {}),
+    });
+    void refreshAgent();
     return;
   }
   const patch: Partial<AgentState> = {};
@@ -132,7 +198,7 @@ async function send() {
     const builtin = builtinCommand(command.name);
     if (builtin) {
       useAgent.setState({ draft: '' });
-      if (builtin === 'new') return clear();
+      if (builtin === 'new') return newSession();
       if (builtin === 'condense') return condenseNow(command.rest);
       // /plan alone switches it; with words after it, switches it on and sends them.
       await setPlan(command.rest ? true : !plan);
@@ -163,10 +229,56 @@ async function stop() {
   if (projectId) await api.abortAgent(projectId).catch((err) => toast((err as Error).message, 'error'));
 }
 
-async function clear() {
+/** Gives a conversation a name; Enter saves it in the history list. */
+async function renameSession(sessionId: string, title: string): Promise<boolean> {
+  const { projectId } = useAgent.getState();
+  if (!projectId || !title.trim()) return false;
+  try {
+    await api.renameAgentSession(projectId, sessionId, title.trim());
+    await refreshAgent();
+    return true;
+  } catch (err) {
+    toast((err as Error).message, 'error');
+    return false;
+  }
+}
+
+/** Deletes a conversation. Deleting the open one starts a new empty conversation. */
+async function deleteSession(sessionId: string): Promise<void> {
+  const { projectId } = useAgent.getState();
+  if (!projectId || !confirm(t('删除这段对话？'))) return;
+  try {
+    await api.deleteAgentSession(projectId, sessionId);
+    await refreshAgent();
+  } catch (err) {
+    toast((err as Error).message, 'error');
+  }
+}
+
+/** Starts a new conversation; the current one stays in the board's history. */
+async function newSession() {
   const { projectId, running } = useAgent.getState();
-  if (!projectId || !confirm(running ? t('助手还在工作，停止并清空这段对话？') : t('清空这段对话？画布上的内容不受影响。'))) return;
-  await api.clearAgent(projectId).catch((err) => toast((err as Error).message, 'error'));
+  if (!projectId || running) return;
+  try {
+    await api.newAgentSession(projectId);
+    await refreshAgent();
+  } catch (err) {
+    toast((err as Error).message, 'error');
+  }
+}
+
+/** Opens one of the board's past conversations and continues it. */
+async function openSession(sessionId: string): Promise<boolean> {
+  const { projectId, sessionId: current, running } = useAgent.getState();
+  if (!projectId || running || !sessionId || sessionId === current) return false;
+  try {
+    await api.openAgentSession(projectId, sessionId);
+    await refreshAgent();
+    return true;
+  } catch (err) {
+    toast((err as Error).message, 'error');
+    return false;
+  }
 }
 
 async function setPlan(on: boolean) {
@@ -175,7 +287,6 @@ async function setPlan(on: boolean) {
   try {
     await api.setAgentPlan(projectId, on);
     useAgent.setState({ plan: on });
-    toast(on ? t('计划模式：助手只读画布、出方案，你确认后才动手') : t('已退出计划模式'), 'info');
   } catch (err) {
     toast((err as Error).message, 'error');
   }
@@ -236,15 +347,86 @@ function ItemChip({ id }: { id: string }) {
   return (
     <button className="agent-chip" title={item.name ?? t('在画布上查看')} onClick={() => focusItems([id])}>
       {media ? (
-        <img src={thumbUrl(media.url)} alt="" />
+        media.kind === 'image' || media.kind === 'video' ? (
+          <img src={thumbUrl(media.url)} alt="" />
+        ) : media.kind === 'audio' ? (
+          <Music />
+        ) : media.kind === 'model3d' ? (
+          <Box />
+        ) : (
+          <FileText />
+        )
       ) : item.kind === 'text' ? (
         <StickyNote />
+      ) : item.kind === 'prompt' ? (
+        <MessageSquareText />
       ) : item.error ? (
         <CircleAlert className="bad" />
       ) : (
         <Loader2 className="spin" />
       )}
     </button>
+  );
+}
+
+/** A selected item the message will carry: click it to find it on the board, × to leave it out. */
+function AttachedChip({ id }: { id: string }) {
+  const item = useStore((s) => s.items.find((i) => i.id === id));
+  if (!item) return null;
+  const media = item.asset;
+  const kind = item.kind === 'text' ? t('文本') : item.kind === 'prompt' ? t('提示词') : kindLabel(item.kind);
+  const textual = item.kind === 'text' || item.kind === 'prompt';
+  return (
+    <span className="agent-attached-chip">
+      <button className={`agent-chip ${textual ? 'agent-chip-note' : ''}`} title={item.name ? `${kind} · ${item.name}` : kind} onClick={() => ensureVisible(item)}>
+        {media ? (
+          media.kind === 'image' || media.kind === 'video' ? (
+            <img src={thumbUrl(media.url)} alt="" />
+          ) : media.kind === 'audio' ? (
+            <Music />
+          ) : media.kind === 'model3d' ? (
+            <Box />
+          ) : (
+            <FileText />
+          )
+        ) : item.kind === 'text' ? (
+          <>
+            <StickyNote />
+            <span>{item.name || kind}</span>
+          </>
+        ) : item.kind === 'prompt' ? (
+          <>
+            <MessageSquareText />
+            <span>{item.name || kind}</span>
+          </>
+        ) : item.error ? (
+          <CircleAlert className="bad" />
+        ) : (
+          <Loader2 className="spin" />
+        )}
+      </button>
+      <button className="agent-attached-remove" title={t('不带这个节点')} onClick={() => select([id], 'toggle')}>
+        <X />
+      </button>
+    </span>
+  );
+}
+
+/** What the message will carry: the items selected on the board, shown above the input. */
+function Attached({ ids }: { ids: string[] }) {
+  return (
+    <div className="agent-attached">
+      <div className="agent-attached-head">
+        <span>{t('会带上选中的 {n} 个节点', { n: ids.length })}</span>
+        <button onClick={() => select([])}>{t('都不带')}</button>
+      </div>
+      <div className="agent-chips">
+        {ids.slice(0, 12).map((id) => (
+          <AttachedChip key={id} id={id} />
+        ))}
+        {ids.length > 12 && <span className="agent-chip more">+{ids.length - 12}</span>}
+      </div>
+    </div>
   );
 }
 
@@ -265,6 +447,7 @@ function Chips({ ids }: { ids: string[] }) {
 
 function Entry({ entry }: { entry: AgentEntry }) {
   const running = useAgent((s) => s.running);
+  const ready = useAgent((s) => Boolean(s.status?.ready));
   if (entry.kind === 'user') {
     return (
       <div className="agent-msg user">
@@ -287,6 +470,11 @@ function Entry({ entry }: { entry: AgentEntry }) {
         {entry.error && (
           <div className="agent-error">
             <CircleAlert /> {entry.error}
+            {!running && ready && (
+              <button className="agent-retry" title={t('接着上一步继续，不用重新说一遍')} onClick={() => void sendText(t('继续'))}>
+                {t('重试')}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -392,20 +580,183 @@ function Approval({ id, approval }: { id: string; approval: NonNullable<Extract<
   );
 }
 
-export function AgentButton() {
-  const open = useAgent((s) => s.open);
-  const running = useAgent((s) => s.running);
-  return (
-    <button className={`pill ${open ? 'on' : ''} ${running ? 'busy' : ''}`} onClick={() => toggleAgent()} title={t('画布助手：说一句话，让它在画布上出图、出视频')}>
-      {running ? <Loader2 className="spin" /> : <Sparkles />} {t('助手')}
-    </button>
-  );
-}
-
 const compact = new Intl.NumberFormat(lang === 'zh' ? 'zh-CN' : 'en', { notation: 'compact', maximumFractionDigits: 1 });
 
 /** Costs come in US dollars (model list prices); the Chinese interface shows yuan at this rough fixed rate. */
 const CNY_PER_USD = 7.2;
+
+function AgentDock() {
+  const open = useAgent((s) => s.open);
+  const [width, setWidth] = useState(() => {
+    const saved = Number(localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(saved) ? Math.max(360, Math.min(560, saved)) : 400;
+  });
+  const widthRef = useRef(width);
+
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = width;
+    const move = (ev: PointerEvent) => {
+      const next = Math.max(360, Math.min(560, w0 + (x0 - ev.clientX)));
+      widthRef.current = next;
+      setWidth(next);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      localStorage.setItem(WIDTH_KEY, String(widthRef.current));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  if (!open) return null;
+  return (
+    <div className="agent-dock" style={{ width }} data-ui>
+      <div className="agent-resize" onPointerDown={startResize} title={t('拖动调整宽度')} />
+      <AgentPanel />
+    </div>
+  );
+}
+
+export { AgentDock };
+
+/** Copies text and flashes the button that did it. */
+function useCopied() {
+  const [copied, setCopied] = useState('');
+  const copy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(''), 1500);
+    } catch {
+      toast(t('复制失败，请手动选择'), 'error');
+    }
+  };
+  return { copied, copy };
+}
+
+interface ExtInfo {
+  name: string;
+  description: string;
+  icon: typeof Bot;
+}
+
+const EXT_INFO: Record<string, ExtInfo> = {
+  claude: {
+    name: 'Claude Code',
+    description: t('Anthropic 的命令行助手，通过 MCP 读取画布并生成内容。'),
+    icon: Sparkles,
+  },
+  codex: {
+    name: 'Codex',
+    description: t('OpenAI 的命令行助手，通过 MCP 在画布上生成和整理素材。'),
+    icon: Terminal,
+  },
+  gemini: {
+    name: 'Gemini CLI',
+    description: t('Google 的命令行助手，配置后可通过 MCP 操作画布。'),
+    icon: Brain,
+  },
+  cursor: {
+    name: 'Cursor',
+    description: t('把 Kynflow 的 MCP 服务加进 Cursor 配置，就能在编辑器里直接操作画布。'),
+    icon: Bot,
+  },
+};
+
+/** One outside assistant: what it is, whether this machine has it, and how to connect it. */
+function ExtensionCard({ ext }: { ext: AgentExtension }) {
+  const info = EXT_INFO[ext.id] ?? { name: ext.id, description: '', icon: Bot };
+  const Icon = info.icon;
+  const { copied, copy } = useCopied();
+  // Already connected assistants stay quiet; the rest open with the setup steps.
+  const [open, setOpen] = useState(!ext.mcpConfigured);
+  return (
+    <div className="agent-ext">
+      <div className="agent-ext-top">
+        <span className="agent-ext-icon">
+          <Icon />
+        </span>
+        <div className="agent-ext-name">
+          <strong>{info.name}</strong>
+          <small>{ext.bin}</small>
+        </div>
+        <div className="agent-ext-badges">
+          <span className={ext.installed ? 'ok' : ''}>{ext.installed ? t('已安装') : t('未检测到')}</span>
+          {ext.mcpConfigured && <span className="ok">{t('已接入')}</span>}
+        </div>
+      </div>
+      <p className="agent-ext-desc">{info.description}</p>
+      {open && (
+        <>
+          <div className="agent-ext-meta">
+            <span>{t('配置文件')}</span>
+            <code>{ext.configPath}</code>
+          </div>
+          {!ext.installed && ext.install && (
+            <>
+              <div className="agent-ext-label">{t('安装')}</div>
+              <div className="agent-command">
+                <code>{ext.install}</code>
+                <button className="icon-btn small" title={t('复制命令')} onClick={() => void copy(ext.install, 'install')}>
+                  {copied === 'install' ? <CircleCheck /> : <Copy />}
+                </button>
+              </div>
+            </>
+          )}
+          <div className="agent-ext-label">{ext.connectKind === 'json' ? t('写入配置文件') : t('接入')}</div>
+          <div className="agent-command">
+            <code>{ext.connect}</code>
+            <button className="icon-btn small" title={t('复制命令')} onClick={() => void copy(ext.connect, 'connect')}>
+              {copied === 'connect' ? <CircleCheck /> : <Copy />}
+            </button>
+          </div>
+        </>
+      )}
+      <div className="agent-ext-foot">
+        {ext.mcpConfigured ? (
+          <div className="agent-ext-ok">
+            <CircleCheck /> {t('这个助手已经配置好 Kynflow。')}
+          </div>
+        ) : (
+          <span />
+        )}
+        <button className="agent-ext-toggle" onClick={() => setOpen((v) => !v)}>
+          {open ? t('收起配置') : t('查看配置')}
+          <ChevronDown className={open ? 'open' : ''} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Extension list: outside assistants detected on this machine. */
+function Extensions() {
+  const extensions = useAgent((s) => s.extensions);
+  const loading = useAgent((s) => s.extensionsLoading);
+  return (
+    <div className="agent-source-body" data-scrollable>
+      <div className="agent-ext-head">
+        <div className="agent-source-title">
+          <Puzzle /> {t('助手扩展')}
+        </div>
+        <button className="icon-btn small" title={t('重新检测')} onClick={() => void loadExtensions()} disabled={loading}>
+          <RefreshCw className={loading ? 'spin' : ''} />
+        </button>
+      </div>
+      <p className="agent-source-note">{t('安装下面任意一个助手，它就能通过 MCP 直接操作当前画布。')}</p>
+      {loading && !extensions ? (
+        <div className="agent-ext-loading">
+          <Loader2 className="spin" /> {t('正在检测本机环境…')}
+        </div>
+      ) : (
+        (extensions ?? []).map((ext) => <ExtensionCard key={ext.id} ext={ext} />)
+      )}
+    </div>
+  );
+}
 
 /** "1.2万 tokens · ¥0.022" / "12.3K tokens · $0.003" */
 function usageText(u: AgentUsage): string {
@@ -416,14 +767,25 @@ function usageText(u: AgentUsage): string {
 }
 
 export function AgentPanel() {
-  const { open, status, entries, running, usage, draft, todos, plan, context, commands, condense } = useAgent();
+  const { open, source, status, entries, running, usage, draft, todos, plan, context, commands, condense, sessionId, sessions } = useAgent();
   const projectId = useStore((s) => s.projectId);
-  const selected = useStore((s) => s.selection.length);
+  const selection = useStore((s) => s.selection);
   const log = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const [active, setActive] = useState(0);
   const [managing, setManaging] = useState(false);
   const [remembering, setRemembering] = useState(false);
+  const [history, setHistory] = useState(false);
+  /** Thinking level and approval mode: changed here, saved as soon as they change. */
+  const [tuning, setTuning] = useState<{ thinking: string; approval: ApprovalMode } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    void api
+      .settings()
+      .then((s) => setTuning({ thinking: s.agentThinking ?? 'low', approval: s.agentApprovalMode ?? 'risky' }))
+      .catch(() => {});
+  }, [open]);
 
   useEffect(() => {
     if (open && projectId) void refreshAgent();
@@ -433,6 +795,10 @@ export function AgentPanel() {
     if (open) void loadCommands();
   }, [open]);
 
+  useEffect(() => {
+    if (open && source === 'extensions' && !useAgent.getState().extensions) void loadExtensions();
+  }, [open, source]);
+
   // Follow the conversation unless the user scrolled up to read.
   useLayoutEffect(() => {
     const el = log.current;
@@ -440,6 +806,15 @@ export function AgentPanel() {
   }, [entries, running, open]);
 
   const closeMemory = useCallback(() => setRemembering(false), []);
+  const tune = (patch: { thinking?: string; approval?: ApprovalMode }) => {
+    setTuning((v) => v && { ...v, ...patch });
+    void api
+      .saveSettings({
+        ...(patch.thinking ? { agentThinking: patch.thinking } : {}),
+        ...(patch.approval ? { agentApprovalMode: patch.approval } : {}),
+      })
+      .catch((err) => toast((err as Error).message, 'error'));
+  };
   const slash = slashItems(draft, commands);
   useEffect(() => setActive(0), [draft]);
 
@@ -458,46 +833,85 @@ export function AgentPanel() {
   return (
     <div className="agent-panel" data-ui>
       <div className="agent-head">
-        <Sparkles className="agent-logo" />
-        <span className="agent-title">{t('画布助手')}</span>
-        {status?.model && (
+        <Bot className="agent-logo" />
+        <span className="agent-title">Agent</span>
+        {source === 'builtin' && status?.model && (
           <span className="agent-model" title={status.model}>
             {status.model.split('/').pop()}
           </span>
         )}
         <span className="agent-head-gap" />
-        {usage.tokens > 0 && (
-          <span
-            className="agent-usage"
-            title={
-              lang === 'zh'
-                ? t('这段对话用掉的 tokens 和费用。tokens 不算命中缓存的部分，那部分几乎不花钱；费用按模型的公开价格估算，美元按 1:{rate} 换成人民币，以服务商账单为准', { rate: CNY_PER_USD })
-                : t('这段对话用掉的 tokens 和费用。tokens 不算命中缓存的部分，那部分几乎不花钱；费用按模型的公开价格估算，以服务商账单为准')
-            }
-          >
-            {usageText(usage)}
-          </span>
+        {source === 'builtin' && (
+          <>
+            {usage.tokens > 0 && (
+              <span
+                className="agent-usage"
+                title={
+                  lang === 'zh'
+                    ? t('这段对话用掉的 tokens 和费用。tokens 不算命中缓存的部分，那部分几乎不花钱；费用按模型的公开价格估算，美元按 1:{rate} 换成人民币，以服务商账单为准', { rate: CNY_PER_USD })
+                    : t('这段对话用掉的 tokens 和费用。tokens 不算命中缓存的部分，那部分几乎不花钱；费用按模型的公开价格估算，以服务商账单为准')
+                }
+              >
+                {usageText(usage)}
+              </span>
+            )}
+            <button className="icon-btn small" title={t('记忆：助手跨对话记住的偏好和决定')} onClick={() => setRemembering(true)} disabled={!projectId}>
+              <Brain />
+            </button>
+            <button
+              className="icon-btn small"
+              title={t('整理对话：把较早的部分整理成摘要，后面每次请求都更省')}
+              onClick={() => useAgent.setState({ condense: { focus: '', busy: false } })}
+              disabled={!ready || running || entries.length < 4 || condense !== null}
+            >
+              <FoldVertical />
+            </button>
+            <button className="icon-btn small" title={t('历史对话')} onClick={() => setHistory((shown) => !shown)} disabled={!projectId || running}>
+              <History />
+            </button>
+            <button className="icon-btn small" title={t('新对话')} onClick={() => void newSession()} disabled={!entries.length || running}>
+              <SquarePen />
+            </button>
+          </>
         )}
-        <button className="icon-btn small" title={t('记忆：助手跨对话记住的偏好和决定')} onClick={() => setRemembering(true)} disabled={!projectId}>
-          <Brain />
-        </button>
-        <button
-          className="icon-btn small"
-          title={t('整理对话：把较早的部分整理成摘要，后面每次请求都更省')}
-          onClick={() => useAgent.setState({ condense: { focus: '', busy: false } })}
-          disabled={!ready || running || entries.length < 4 || condense !== null}
-        >
-          <FoldVertical />
-        </button>
-        <button className="icon-btn small" title={t('新对话')} onClick={() => void clear()} disabled={!entries.length}>
-          <SquarePen />
-        </button>
         <button className="icon-btn small" title={t('收起')} onClick={() => toggleAgent(false)}>
           <X />
         </button>
+        {history && (
+          <div className="agent-history-pop">
+            <div className="agent-history-head">
+              <span>{t('历史对话')}</span>
+              <button className="icon-btn small" title={t('关闭')} onClick={() => setHistory(false)}>
+                <X />
+              </button>
+            </div>
+            <HistoryList
+              sessions={sessions}
+              current={sessionId}
+              running={running}
+              onClose={() => setHistory(false)}
+              onOpen={async (id) => {
+                if (await openSession(id)) setHistory(false);
+              }}
+            />
+          </div>
+        )}
+      </div>
+      {history && <div className="agent-history-scrim" onClick={() => setHistory(false)} />}
+
+      <div className="agent-sources">
+        {SOURCES.map((item) => (
+          <button key={item.id} className={source === item.id ? 'on' : ''} onClick={() => setSource(item.id)}>
+            {item.label}
+          </button>
+        ))}
       </div>
 
-      <Todos todos={todos} />
+      {source === 'extensions' ? (
+        <Extensions />
+      ) : (
+        <>
+          <Todos todos={todos} />
 
       <div
         className="agent-log"
@@ -510,8 +924,7 @@ export function AgentPanel() {
       >
         {!entries.length && (
           <div className="agent-empty">
-            <Sparkles />
-            <p>{t('说说你想做什么，助手会在画布上出图、出视频，并把结果连到用到的节点上。')}</p>
+            <Bot />
             {SUGGESTIONS.map((s) => (
               <button key={s} className="agent-suggest" onClick={() => useAgent.setState({ draft: s })}>
                 {s}
@@ -561,17 +974,12 @@ export function AgentPanel() {
 
       <div className={`agent-input ${plan ? 'plan' : ''}`}>
         {slash && <SlashMenu items={slash} active={active} onPick={pick} onHover={setActive} onManage={() => setManaging(true)} />}
+        {selection.length > 0 && <Attached ids={selection} />}
         <textarea
           value={draft}
           rows={3}
           disabled={!ready}
-          placeholder={
-            plan
-              ? t('计划模式：助手只读画布、出方案，你确认后才动手')
-              : selected
-                ? t('会带上选中的 {n} 个节点', { n: selected })
-                : t('想让助手做什么？打 / 用命令')
-          }
+          placeholder={plan ? t('计划模式：助手只读画布、出方案，你确认后才动手') : t('想让助手做什么？打 / 用命令')}
           onChange={(e) => useAgent.setState({ draft: e.target.value })}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return;
@@ -598,6 +1006,36 @@ export function AgentPanel() {
           >
             <ClipboardList /> {t('计划模式')}
           </button>
+          {tuning && (
+            <>
+              <span className="agent-tune">
+                <Dropdown
+                  value={tuning.thinking}
+                  options={[
+                    { value: 'off', label: t('思考：关') },
+                    { value: 'minimal', label: t('思考：极低') },
+                    { value: 'low', label: t('思考：低') },
+                    { value: 'medium', label: t('思考：中') },
+                    { value: 'high', label: t('思考：高') },
+                  ]}
+                  onChange={(thinking) => tune({ thinking })}
+                />
+              </span>
+              <span className="agent-tune">
+                <Dropdown
+                  wide
+                  value={tuning.approval}
+                  title={t('助手什么时候先问你')}
+                  options={[
+                    { value: 'risky', label: t('高风险'), desc: t('只在删除内容、整批视频、接受方案时先问') },
+                    { value: 'prompts', label: t('看提示词'), desc: t('每次生成前先确认提示词，可以直接改') },
+                    { value: 'always', label: t('逐项审批'), desc: t('每一项修改画布或提交任务都先审批') },
+                  ]}
+                  onChange={(approval) => tune({ approval: approval as ApprovalMode })}
+                />
+              </span>
+            </>
+          )}
           {context && (
             <span
               className={`agent-context ${full >= 80 ? 'full' : ''}`}
@@ -609,7 +1047,7 @@ export function AgentPanel() {
               {t('上下文 {n}%', { n: full })}
             </span>
           )}
-          <span className="agent-hint">{running ? t('工作中，可以继续补充要求') : t('Enter 发送 · Shift+Enter 换行')}</span>
+          {running && <span className="agent-hint">{t('工作中，可以继续补充要求')}</span>}
           {running && (
             <button className="btn ghost small" onClick={() => void stop()}>
               <Square /> {t('停止')}
@@ -620,9 +1058,115 @@ export function AgentPanel() {
           </button>
         </div>
       </div>
+        </>
+      )}
 
       {remembering && projectId && <MemoryModal projectId={projectId} onClose={closeMemory} />}
       {managing && <CommandsModal onClose={() => setManaging(false)} onSaved={(list) => useAgent.setState({ commands: list })} />}
+    </div>
+  );
+}
+
+/** The board's past conversations, shown inside the assistant panel: open, rename, search or delete one. */
+function HistoryList({
+  sessions,
+  current,
+  running,
+  onClose,
+  onOpen,
+}: {
+  sessions: AgentSessionInfo[];
+  current: string;
+  running: boolean;
+  onClose: () => void;
+  onOpen: (id: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState('');
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const needle = query.trim().toLowerCase();
+  const shown = needle ? sessions.filter((s) => s.title.toLowerCase().includes(needle)) : sessions;
+
+  const save = async (id: string) => {
+    if (!draft.trim()) return;
+    setBusy(true);
+    if (await renameSession(id, draft)) setEditing('');
+    setBusy(false);
+  };
+
+  const remove = async (id: string) => {
+    setBusy(true);
+    await deleteSession(id);
+    setBusy(false);
+  };
+
+  return (
+    <div className="agent-history">
+      <label className="agent-history-search">
+        <Search />
+        <input value={query} placeholder={t('搜索对话')} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      {shown.length === 0 ? (
+        <div className="agent-history-empty">
+          {needle ? t('没有匹配的对话') : t('还没有历史对话。开始新对话后，这里会保留之前的对话。')}
+        </div>
+      ) : (
+        shown.map((session) => (
+          <div key={session.id} className={`agent-history-row ${session.id === current ? 'on' : ''}`}>
+            {editing === session.id ? (
+              <input
+                className="agent-history-rename"
+                autoFocus
+                value={draft}
+                title={t('回车保存，Esc 取消')}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void save(session.id);
+                  if (e.key === 'Escape') setEditing('');
+                }}
+              />
+            ) : (
+              <button
+                className="agent-history-open"
+                onClick={() => (session.id === current ? onClose() : onOpen(session.id))}
+              >
+                <span className="agent-history-title">{session.title}</span>
+                <span className="agent-history-when">
+                  {session.id === current ? `${t('当前')} · ` : ''}
+                  {new Date(session.updatedAt).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </button>
+            )}
+            <div className="agent-history-actions">
+              <button
+                className="icon-btn small"
+                title={t('重命名')}
+                disabled={busy || running}
+                onClick={() => {
+                  setEditing(session.id);
+                  setDraft(session.title);
+                }}
+              >
+                <Pencil />
+              </button>
+              <button
+                className="icon-btn small"
+                title={t('删除')}
+                disabled={busy || running}
+                onClick={() => void remove(session.id)}
+              >
+                <Trash2 />
+              </button>
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }

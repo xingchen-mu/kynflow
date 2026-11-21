@@ -1,4 +1,4 @@
-import { mkdir, rename, stat } from 'node:fs/promises';
+import { mkdir, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { THUMB_PX } from '../../shared/media.ts';
@@ -12,6 +12,14 @@ export class ThumbStore {
 
   async init() {
     await mkdir(this.dir, { recursive: true });
+  }
+
+  async remove(file: string) {
+    try {
+      await unlink(join(this.dir, `${file}.webp`));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
   }
 
   /** Path of the thumbnail for an asset file (`file` as in /files/<file>), made if needed. */

@@ -15,6 +15,7 @@ import { registerAssetsRoutes } from './routes/assets.ts';
 import { registerTasksRoutes } from './routes/tasks.ts';
 import { registerEventsRoutes } from './routes/events.ts';
 import { registerProjectsRoutes } from './routes/projects.ts';
+import { registerSeriesRoutes } from './routes/series.ts';
 import { registerAgentRoutes } from './routes/agent.ts';
 import { registerMcpRoutes } from './routes/mcp.ts';
 import { registerModelsRoutes } from './routes/models.ts';
@@ -43,6 +44,7 @@ export function createApp(services: Services) {
   registerTasksRoutes(app, services);
   registerEventsRoutes(app, services);
   registerProjectsRoutes(app, services);
+  registerSeriesRoutes(app, services);
   registerAgentRoutes(app, services);
   registerMcpRoutes(app, services);
   registerModelsRoutes(app, services);

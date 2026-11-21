@@ -1,6 +1,6 @@
 import type { CanvasItem } from '../../shared/types';
 import { commit, select, useStore } from '../store';
-import { cloneItems } from './items';
+import { cloneItems, isTextual } from './items';
 import { boundsOf } from '../../shared/geometry';
 
 /** Written to the system clipboard on copy, so a later paste knows to use our items. */
@@ -11,7 +11,7 @@ let pasteCount = 0;
 
 export function copySelection(): boolean {
   const { items, selection } = useStore.getState();
-  const picked = items.filter((i) => selection.includes(i.id) && (i.asset || i.kind === 'text'));
+  const picked = items.filter((i) => selection.includes(i.id) && (i.asset || isTextual(i)));
   if (!picked.length) return false;
   copied = picked.map((i) => ({ ...i }));
   pasteCount = 0;

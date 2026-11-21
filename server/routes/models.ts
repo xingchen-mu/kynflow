@@ -5,7 +5,7 @@ import type { Services } from '../services.ts';
 
 // These write gigabytes into the models folders and may run commands on the ComfyUI server over SSH,
 // so like the assistant they only take requests from this machine.
-const refuse = (c: Context) => c.json({ error: t('只能在运行 Infinode 的这台电脑上下载模型') }, 403);
+const refuse = (c: Context) => c.json({ error: t('只能在运行 Kynflow 的这台电脑上下载模型') }, 403);
 
 /** Downloading model files into ComfyUI's models folders (see server/models/installer.ts). */
 export function registerModelsRoutes(app: Hono, { models }: Pick<Services, 'models'>) {

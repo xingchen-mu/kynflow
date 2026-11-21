@@ -66,7 +66,14 @@ export class ProjectStore {
       try {
         const p = JSON.parse(await readFile(join(this.dir, n), 'utf8')) as Project;
         const cover = p.items.find((i) => i.asset?.kind === 'image')?.asset?.url;
-        out.push({ id: p.id, name: p.name, updatedAt: p.updatedAt, itemCount: p.items.length, ...(cover ? { cover } : {}) });
+        out.push({
+          id: p.id,
+          name: p.name,
+          updatedAt: p.updatedAt,
+          itemCount: p.items.length,
+          ...(cover ? { cover } : {}),
+          ...(p.seriesId ? { seriesId: p.seriesId } : {}),
+        });
       } catch {
         /* skip unreadable files */
       }
@@ -107,9 +114,17 @@ export class ProjectStore {
     return out;
   }
 
-  async create(name = t('未命名画布')): Promise<Project> {
+  async create(name = t('未命名画布'), seriesId?: string): Promise<Project> {
     const now = Date.now();
-    const p: Project = { id: nanoid(10), name, items: [], viewport: { x: 0, y: 0, zoom: 1 }, createdAt: now, updatedAt: now };
+    const p: Project = {
+      id: nanoid(10),
+      name,
+      items: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: now,
+      updatedAt: now,
+      ...(seriesId ? { seriesId } : {}),
+    };
     await this.write(p);
     return p;
   }
@@ -172,6 +187,7 @@ export class ProjectStore {
     return this.exclusive(projectId, async () => {
       const snapshot = await this.readSnapshot(projectId, snapshotId);
       if (!snapshot) return undefined;
+      const source = await this.get(projectId);
       const now = Date.now();
       const project: Project = {
         id: nanoid(10),
@@ -180,6 +196,8 @@ export class ProjectStore {
         viewport: snapshot.viewport,
         createdAt: now,
         updatedAt: now,
+        // A branch stays in the series: it shares the series memory but copies the board's.
+        ...(source?.seriesId ? { seriesId: source.seriesId } : {}),
       };
       await this.write(project);
       return project;
@@ -187,7 +205,11 @@ export class ProjectStore {
   }
 
   /** `base`: the updatedAt the writer last saw; a newer board is a conflict instead of being overwritten. */
-  save(id: string, patch: Partial<Pick<Project, 'name' | 'items' | 'viewport'>>, base?: number): Promise<Project | undefined> {
+  save(
+    id: string,
+    patch: Partial<Pick<Project, 'name' | 'items' | 'viewport' | 'seriesId'>>,
+    base?: number,
+  ): Promise<Project | undefined> {
     return this.exclusive(id, async () => {
       const p = await this.get(id);
       if (!p) return undefined;
@@ -195,6 +217,21 @@ export class ProjectStore {
       if (typeof patch.name === 'string') p.name = patch.name.trim().slice(0, 80) || p.name;
       if (Array.isArray(patch.items)) p.items = patch.items;
       if (patch.viewport) p.viewport = patch.viewport;
+      if (typeof patch.seriesId === 'string') {
+        if (patch.seriesId) p.seriesId = patch.seriesId;
+        else delete p.seriesId;
+      }
+      return this.touch(p);
+    });
+  }
+
+  /** Moves the board into a series, or out of one (`undefined`); not a board save, so it needs no version. */
+  setSeries(id: string, seriesId?: string): Promise<Project | undefined> {
+    return this.exclusive(id, async () => {
+      const p = await this.get(id);
+      if (!p) return undefined;
+      if (seriesId) p.seriesId = seriesId;
+      else delete p.seriesId;
       return this.touch(p);
     });
   }

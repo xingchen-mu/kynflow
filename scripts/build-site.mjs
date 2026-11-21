@@ -7,4 +7,5 @@ await rm(target, { recursive: true, force: true });
 await mkdir(target, { recursive: true });
 await cp(join(root, 'docs', 'media', 'logo.svg'), join(target, 'logo.svg'));
 await cp(join(root, 'docs', 'media', 'hero.png'), join(target, 'hero.png'));
+await cp(join(root, 'docs', 'media', 'kynflow-icon.png'), join(target, 'kynflow-icon.png'));
 console.log('site assets copied');

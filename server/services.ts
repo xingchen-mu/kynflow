@@ -9,6 +9,7 @@ import { ComfyClient } from './comfy/client.ts';
 import { config } from './config.ts';
 import { PresetStore } from './workflows/presets.ts';
 import { ProjectStore } from './projects/store.ts';
+import { SeriesStore } from './projects/series.ts';
 import { SettingsStore } from './settings.ts';
 import { TaskManager } from './tasks/manager.ts';
 import { ThumbStore } from './assets/thumbnails.ts';
@@ -36,6 +37,7 @@ export async function createServices() {
   const comfy = new ComfyClient(settings.value.comfyUrl, await stableClientId());
   const assets = new AssetStore();
   const projects = new ProjectStore();
+  const series = new SeriesStore();
   const workflows = new WorkflowStore();
   const presets = new PresetStore();
   const thumbs = new ThumbStore();
@@ -46,7 +48,7 @@ export async function createServices() {
     (id) => workflows.get(id) ?? presets.get(id),
     capabilities.cachedObjectInfo,
   );
-  await Promise.all([assets.init(), projects.init(), workflows.init(), presets.init(), tasks.init(), thumbs.init()]);
+  await Promise.all([assets.init(), projects.init(), series.init(), workflows.init(), presets.init(), tasks.init(), thumbs.init()]);
 
   const events = createEvents();
   const { projectEvents, agentEvents, revealEvents, downloadEvents } = events;
@@ -72,7 +74,7 @@ export async function createServices() {
   const mcp = new CanvasMcp(canvasDeps, () => presence, (projectId, ids) => revealEvents.emit({ projectId, ids }), process.env.npm_package_version ?? 'dev');
   await agent.init();
   return {
-    settings, comfy, assets, projects, workflows, presets, thumbs, tasks, agent, mcp, capabilities, models,
+    settings, comfy, assets, projects, series, workflows, presets, thumbs, tasks, agent, mcp, capabilities, models,
     ...events,
     setPresence: (next: Presence) => { presence = next; },
   };

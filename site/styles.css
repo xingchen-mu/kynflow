@@ -23,6 +23,7 @@ button { color: inherit; font: inherit; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.03em; }
 .brand img { width: 28px; height: 28px; }
 .brand span { font-size: 18px; }
+.brand .brand-flow { color: #b8f36b; }
 .nav-links { display: flex; align-items: center; gap: 28px; margin-left: auto; color: var(--muted); font-size: 13px; }
 .nav-links a, .site-footer a { transition: color .2s; }
 .nav-links a:hover, .site-footer a:hover { color: var(--lime); }

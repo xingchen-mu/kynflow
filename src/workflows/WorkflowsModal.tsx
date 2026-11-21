@@ -1,29 +1,72 @@
 import { Download, FileJson, Pencil, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
-import type { CustomWorkflow, WorkflowInputType } from '../../shared/types';
+import { msg } from '../../shared/i18n';
+import type { CustomWorkflow, WorkflowCapability, WorkflowInputType } from '../../shared/types';
 import { loadWorkflows } from './actions';
 import { api } from '../lib/api';
 import { unavailableReason } from '../generation/models';
 import { setComposer, toast, useStore } from '../store';
+import { openGenerator } from '../generation/openGenerator';
+import { kindLabel } from '../canvas/items';
 import { rich, t } from '../i18n';
 import { Modal } from '../components/Modal';
 
 const close = () => useStore.setState({ modal: null });
+const CAPABILITY_LABELS: Record<WorkflowCapability, string> = {
+  text_to_image: msg('文生图'),
+  image_edit: msg('图生图/编辑'),
+  inpaint: msg('局部重绘'),
+  upscale: msg('放大'),
+  remove_background: msg('抠图'),
+  text_to_video: msg('文生视频'),
+  image_to_video: msg('图生视频'),
+  video_edit: msg('视频编辑'),
+  text_to_audio: msg('文生音频'),
+  text_to_3d: msg('文生 3D'),
+  text_to_document: msg('文生文本'),
+  other: msg('其它'),
+};
+const CAPABILITY_SOURCE = { declared: msg('用户确认'), inferred: msg('自动推断'), degraded: msg('节点信息不完整') } as const;
+const COST_LABEL = { low: msg('低成本'), medium: msg('中成本'), high: msg('高成本') } as const;
+
+function capabilitySummary(wf: CustomWorkflow) {
+  const info = wf.capability;
+  if (!info) return t('能力未标注');
+  const parts = [t(CAPABILITY_LABELS[info.capability]), t(CAPABILITY_SOURCE[info.source])];
+  if (info.cost) parts.push(t(COST_LABEL[info.cost]));
+  if (info.expected_seconds) parts.push(t('预计 GPU {n} 秒', { n: info.expected_seconds }));
+  return parts.join(' · ');
+}
 
 function inputSummary(wf: CustomWorkflow) {
   const count = (type: WorkflowInputType) => wf.inputs.filter((i) => i.type === type).length;
   const parts: string[] = [];
   if (count('prompt')) parts.push(t('提示词'));
-  if (count('image')) parts.push(t('{n} 张图', { n: count('image') }));
-  if (count('video')) parts.push(t('{n} 个视频', { n: count('video') }));
+  const images = count('image');
+  const videos = count('video');
+  const minImages = wf.capability?.constraints.min_images ?? wf.inputs.filter((i) => i.type === 'image' && !i.optional).length;
+  const minVideos = wf.capability?.constraints.min_videos ?? wf.inputs.filter((i) => i.type === 'video' && !i.optional).length;
+  if (images) parts.push(images === minImages ? t('{n} 张图', { n: images }) : t('图片 {min}–{max} 张', { min: minImages, max: images }));
+  if (videos) parts.push(videos === minVideos ? t('{n} 个视频', { n: videos }) : t('视频 {min}–{max} 个', { min: minVideos, max: videos }));
   if (count('mask')) parts.push(t('蒙版'));
+  if (wf.capability?.constraints.controls_aspect) parts.push(t('可调比例'));
   const params = wf.inputs.filter((i) => ['number', 'text', 'select', 'boolean'].includes(i.type)).length;
   if (params) parts.push(t('{n} 个参数', { n: params }));
   return parts.join(' · ') || t('无输入');
 }
 
 function exportWorkflow(wf: CustomWorkflow) {
-  const data = { format: 'infinode/workflow', version: 1, name: wf.name, description: wf.description, kind: wf.kind, graph: wf.graph, inputs: wf.inputs, outputs: wf.outputs };
+  const data = {
+    format: 'infinode/workflow',
+    version: 1,
+    name: wf.name,
+    description: wf.description,
+    kind: wf.kind,
+    graph: wf.graph,
+    inputs: wf.inputs,
+    outputs: wf.outputs,
+    ...(wf.capability?.source === 'declared' ? { capability: wf.capability } : {}),
+  };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -67,9 +110,9 @@ export function WorkflowsModal() {
     await loadWorkflows();
   };
   const use = (wf: CustomWorkflow) => {
-    setComposer(wf.kind === 'image' ? { mode: 'image', imageModel: `custom:${wf.id}` } : { mode: 'video', videoModel: `custom:${wf.id}` });
+    setComposer({ mode: wf.kind, workflowId: wf.id });
     close();
-    requestAnimationFrame(() => document.getElementById('composer-input')?.focus());
+    openGenerator();
   };
 
   return (
@@ -121,7 +164,7 @@ export function WorkflowsModal() {
 
       {workflows.length === 0 ? (
         <div className="m-help wf-empty">
-          {t('还没有导入的工作流。导入后会出现在底部输入框的模型列表里，选中画布上的图片即可作为它的输入。')}
+          {t('还没有导入的工作流。导入后会出现在生成节点的模型列表里，选中画布上的图片即可作为它的输入。')}
           <br />
           {rich(t('小技巧：在 ComfyUI 里把节点标题改成 {0}、{1}、{2}、{3}、{4}、{5}，导入时会按标题识别。'), [
             <code>@prompt</code>,
@@ -142,9 +185,9 @@ export function WorkflowsModal() {
                 <div className="wf-main">
                   <div className="wf-name">
                     {t(wf.name)}
-                    <span className="badge">{wf.kind === 'video' ? t('视频') : t('图片')}</span>
+                    <span className="badge">{kindLabel(wf.kind)}</span>
                   </div>
-                  <div className="wf-meta">{inputSummary(wf)}</div>
+                  <div className="wf-meta">{capabilitySummary(wf)} · {inputSummary(wf)}</div>
                   {bad && <div className="wf-bad">{unavailableReason(missing!)}</div>}
                 </div>
                 <button className="btn ghost small" onClick={() => use(wf)} disabled={Boolean(bad)}>

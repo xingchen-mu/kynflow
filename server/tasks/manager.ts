@@ -346,9 +346,9 @@ export class TaskManager extends EventEmitter {
         return;
       }
       this.update(job, { stage: t('保存结果'), progress: 0.99 });
-      // Only files the board can show (skips audio, text, latents…).
+      // Only files the board can show (skips latents and other intermediates).
       const files = historyFiles(entry, job.outputNodes).filter((f) => mimeFor(f.filename));
-      if (!files.length) throw new Error(t('ComfyUI 没有返回可显示的图片或视频，检查工作流的输出节点'));
+      if (!files.length) throw new Error(t('ComfyUI 没有返回可显示的文件，检查工作流的输出节点'));
       const results: AssetInfo[] = [];
       for (const f of files) {
         const data = await this.comfy.view(f);

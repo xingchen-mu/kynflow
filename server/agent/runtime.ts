@@ -1,5 +1,6 @@
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { nanoid } from 'nanoid';
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import {
   type Api,
@@ -19,7 +20,7 @@ import {
 } from '@earendil-works/pi-ai';
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
-import type { AgentCommand, AgentContext, AgentEntry, AgentMemories, AgentMemory, MemoryScope, AgentEventData, AgentPrompt, AgentQuestion, AgentStatus, AgentTodo, AgentUsage, AgentView, ApprovalMode, CanvasItem, Task } from '../../shared/types.ts';
+import type { AgentCommand, AgentContext, AgentEntry, AgentMemories, AgentMemory, AgentSessionInfo, AgentSessionList, MemoryPromotion, MemoryScope, AgentEventData, AgentPrompt, AgentQuestion, AgentStatus, AgentTodo, AgentUsage, AgentView, ApprovalMode, CanvasItem, Task } from '../../shared/types.ts';
 import { COMMAND_NAME, MAX_COMMANDS, MAX_COMMAND_PROMPT, builtinCommand } from '../../shared/commands.ts';
 import { type Lang, type Vars, msg } from '../../shared/i18n.ts';
 import { config } from '../config.ts';
@@ -29,9 +30,10 @@ import { RequestError } from '../workflows/index.ts';
 import { type CanvasDeps, ResultWriter, describeItem, readBoard } from './board.ts';
 import { speedNote } from './estimate.ts';
 import { SUMMARY_PROMPT, commercialRules, languageRule, systemPrompt } from './prompt.ts';
-import { type CanvasTool, type Json, type ToolContext, canvasTools } from './tools.ts';
+import { type CanvasTool, type Json, type ToolContext, type ToolOutput, canvasTools } from './tools.ts';
 import { writeJson } from './write.ts';
-import { type MemoryOp, MemoryStore, memoryBlock } from './memory.ts';
+import { type MemoryOp, MemoryStore, describeMemory, memoryBlock, memoryPromotions } from './memory.ts';
+import { createEmbedder } from './embeddings.ts';
 
 const DEFAULT_MODEL = 'deepseek/deepseek-flash';
 const THINKING = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -67,9 +69,46 @@ const IMAGE_DROPPED = '[这张图片已从上下文中移除，需要时用 view
 const MAX_MESSAGE = 8000;
 /** Selected items described in full in each message; the rest are listed by id. */
 const MAX_DESCRIBED = 20;
+/**
+ * A tool called with the very same arguments this many times in a row means the model is going in
+ * circles (it usually read something it already had). The call after that one is refused.
+ */
+const SAME_CALL_LIMIT = 3;
+/** Tools that may be called again with the same arguments on purpose, e.g. while waiting for slow video. */
+const REPEATABLE = new Set(['wait_for_items']);
+/** Errors longer than this reach the model cut short; the whole text stays in the server log. */
+const MAX_ERROR_CHARS = 600;
+/** A conversation id: on disk it is the part after `<projectId>.`. */
+const SESSION_ID = /^[\w-]{4,32}$/;
+/** A conversation title in the history list. */
+const TITLE_CHARS = 30;
+
+/** Which conversation the board opens, and the ones kept in history. */
+interface SessionIndex {
+  version: 1;
+  current: { id: string; title: string; createdAt: number };
+  /** Newest first. Only conversations with a user message are here. */
+  items: AgentSessionInfo[];
+}
+
+/**
+ * A tool error as the model should read it. Long ones (ffmpeg, ComfyUI) are cut: the start says what
+ * broke, and the rest would only crowd out the work still to do.
+ */
+export function compactError(message: string, limit = MAX_ERROR_CHARS): string {
+  const text = message.trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}…\n${t('（后面的内容太长，没有带过来。先按前面说的改，不要用同样的参数重试。）')}`;
+}
 
 interface Session {
   projectId: string;
+  /** Which conversation of this board; files on disk are named after it. */
+  sessionId: string;
+  /** When this conversation started, as the history list shows it. */
+  createdAt: number;
+  /** A title the user gave; empty means it follows the first message. */
+  title: string;
   agent: Agent;
   /** From send() until the run settles; a message arriving meanwhile steers the run. */
   running: boolean;
@@ -88,6 +127,8 @@ interface Session {
   archived: AgentEntry[];
   /** Runs started by finished tasks since the user last wrote. */
   autoRuns: number;
+  /** Tool calls of the current run, as `tool:arguments`, to spot a model going in circles. */
+  calls: string[];
   /** The commercial-only setting the model was last told about. */
   commercial: boolean;
   /** The interface language the model was last told to answer in. */
@@ -160,20 +201,24 @@ function editPrompts(target: Json, shown: AgentPrompt[], given: string[]): strin
 /** What condensing found worth remembering, after the summary. */
 const MEMORY_UPDATES = /<memory_updates>([\s\S]*?)<\/memory_updates>/;
 
-/** The memory changes a summary ends with; whatever is not well-formed is left out. */
-export function memoryUpdates(text: string): MemoryOp[] {
+/** The memory changes a summary ends with; `malformed` says the block was there but could not be read. */
+export function readMemoryUpdates(text: string): { ops: MemoryOp[]; malformed: boolean } {
   const m = MEMORY_UPDATES.exec(text);
-  if (!m) return [];
+  if (!m) return { ops: [], malformed: false };
   let list: unknown;
   try {
     list = JSON.parse(m[1].trim() || '[]');
   } catch {
-    return [];
+    return { ops: [], malformed: true };
   }
-  if (!Array.isArray(list)) return [];
-  return list
+  if (!Array.isArray(list)) return { ops: [], malformed: true };
+  const ops = list
     .filter((o): o is Record<string, unknown> => Boolean(o) && typeof o === 'object')
-    .filter((o) => (o.action === 'add' || o.action === 'update' || o.action === 'delete') && (o.scope === 'board' || o.scope === 'user'))
+    .filter(
+      (o) =>
+        (o.action === 'add' || o.action === 'update' || o.action === 'delete') &&
+        (o.scope === 'series' || o.scope === 'board' || o.scope === 'user'),
+    )
     .slice(0, 20)
     .map((o) => ({
       action: o.action as MemoryOp['action'],
@@ -182,7 +227,14 @@ export function memoryUpdates(text: string): MemoryOp[] {
       ...(typeof o.type === 'string' ? { type: o.type as MemoryOp['type'] } : {}),
       ...(typeof o.text === 'string' ? { text: o.text } : {}),
       ...(typeof o.why === 'string' ? { why: o.why } : {}),
+      ...(typeof o.confidence === 'number' && o.confidence >= 0 && o.confidence <= 1 ? { confidence: o.confidence } : {}),
     }));
+  return { ops, malformed: false };
+}
+
+/** The ops only, for callers that do not care whether the block was well-formed. */
+export function memoryUpdates(text: string): MemoryOp[] {
+  return readMemoryUpdates(text).ops;
 }
 
 /** Tools without a row in the panel: the to-do list shows on its own. */
@@ -432,6 +484,18 @@ function assistantEntry(m: AssistantMessage): AgentEntry | undefined {
   return { kind: 'assistant', id: `a${m.timestamp}`, text, ...(error ? { error } : {}), at: m.timestamp };
 }
 
+/** The first thing the user asked, for the history list; events and summaries do not name a conversation. */
+function sessionTitle(messages: AgentMessage[]): string {
+  for (const m of messages) {
+    if (m.role !== 'user') continue;
+    const raw = textOf(m.content).replace(CONTEXT, '').trim();
+    if (!raw || EVENT.test(raw) || SUMMARY.test(raw)) continue;
+    const line = raw.replace(/\s+/g, ' ');
+    return line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS)}…` : line;
+  }
+  return t('新对话');
+}
+
 /** Lets the canvas agent run on any pi-ai model; one conversation per board. */
 export class AgentHub {
   private state!: Omit<AgentStatus, 'reason'> & { issue?: [string, Vars?] };
@@ -443,7 +507,7 @@ export class AgentHub {
   }
   private readonly dir = join(config.dataDir, 'agent');
   private readonly commandsFile = join(this.dir, 'commands.json');
-  private readonly memory = new MemoryStore(this.dir);
+  private memory = new MemoryStore(this.dir);
   private readonly sessions = new Map<string, Promise<Session>>();
   /** Sessions once open. */
   private readonly live = new Map<string, Session>();
@@ -472,6 +536,7 @@ export class AgentHub {
     this.opts = opts;
     this.settings = settings;
     this.watchFile = join(this.dir, 'watches.json');
+    this.memory = new MemoryStore(this.dir, createEmbedder(settings?.agentConfig().embedding));
     this.models = opts.models ?? builtinModels();
     this.tools = canvasTools(deps, new ResultWriter(deps));
     this.labels = new Map(this.tools.map((t) => [t.name, t]));
@@ -530,6 +595,17 @@ export class AgentHub {
   }
 
   /** Apply settings immediately. Existing conversations are reopened from disk with the new model. */
+  /** Only the approval mode changed: it applies from the next tool call, and no run is stopped. */
+  /** Approval mode and thinking level changed in the panel: the next turn uses them. */
+  refreshRuntime() {
+    const cfg = this.settings?.agentConfig();
+    if (!cfg) return;
+    this.approvalMode = cfg.approvalMode;
+    const wanted = cfg.thinking as ThinkingLevel;
+    this.thinking = !this.model?.reasoning ? 'off' : (clampThinkingLevel(this.model, THINKING.has(wanted) ? wanted : 'low') as ThinkingLevel);
+  }
+
+  /** The model settings changed: running conversations stop, and every conversation reopens with the new model. */
   async reconfigure() {
     for (const s of this.live.values()) {
       s.agent.clearAllQueues();
@@ -539,6 +615,7 @@ export class AgentHub {
     this.sessions.clear();
     this.live.clear();
     this.configureModel();
+    this.memory = new MemoryStore(this.dir, createEmbedder(this.settings?.agentConfig().embedding));
     this.setModelState();
     await this.refreshAuth();
   }
@@ -560,7 +637,7 @@ export class AgentHub {
 
   async view(projectId: string): Promise<AgentView> {
     const s = await this.session(projectId);
-    return { entries: this.entries(s), running: s.running, usage: s.usage, todos: s.todos, plan: s.plan, context: this.contextOf(s) };
+    return { entries: this.entries(s), running: s.running, usage: s.usage, todos: s.todos, plan: s.plan, context: this.contextOf(s), sessionId: s.sessionId };
   }
 
   /** How full the context was at the last request, against the size at which it is condensed. */
@@ -760,20 +837,62 @@ export class AgentHub {
 
   /** The instructions with the memory after them: set when a conversation opens and after condensing, so the cache holds. */
   private async promptFor(s: Pick<Session, 'projectId' | 'commercial' | 'lang'>): Promise<string> {
-    const memory = await this.memories(s.projectId);
-    return `${systemPrompt(this.state.vision, s.commercial, s.lang)}\n\n${memoryBlock(memory.board, memory.user)}`;
+    return `${systemPrompt(this.state.vision, s.commercial, s.lang)}\n\n${await this.memoryText(s.projectId)}`;
+  }
+
+  /** The series this board is in, when any. */
+  private async seriesOf(projectId: string): Promise<string | undefined> {
+    return (await this.deps.projects.get(projectId))?.seriesId;
+  }
+
+  /** Memory as the model reads it; the series section appears only for a board that belongs to one. */
+  private async memoryText(projectId: string): Promise<string> {
+    const memory = await this.memories(projectId);
+    return memoryBlock(memory.board, (await this.seriesOf(projectId)) ? memory.series : undefined, memory.user);
   }
 
   async memories(projectId: string): Promise<AgentMemories> {
-    const [board, user] = await Promise.all([this.memory.read('board', projectId), this.memory.read('user', projectId)]);
-    return { board, user };
+    const seriesId = await this.seriesOf(projectId);
+    const [board, series, user] = await Promise.all([
+      this.memory.read('board', projectId),
+      seriesId ? this.memory.read('series', seriesId) : Promise.resolve({ auto: true, entries: [], entities: [] }),
+      this.memory.read('user', projectId),
+    ]);
+    return { board, series, user };
+  }
+
+  /**
+   * Board settings that recur on several boards of this series and the series does not have yet: promoting
+   * one to series memory makes it true for every board, instead of each keeping its own copy.
+   */
+  async promotionCandidates(projectId: string): Promise<MemoryPromotion[]> {
+    const project = await this.deps.projects.get(projectId);
+    const seriesId = project?.seriesId;
+    if (!seriesId) return [];
+    const [summaries, series] = await Promise.all([this.deps.projects.list(), this.memory.read('series', seriesId)]);
+    const members = summaries.filter((p) => p.seriesId === seriesId);
+    if (members.length < 2) return [];
+    const boards = await Promise.all(
+      members.map(async (p) => ({ id: p.id, name: p.name, memory: await this.memory.read('board', p.id) })),
+    );
+    return memoryPromotions(series, boards);
+  }
+
+  /** The board moved to another series (or its shared memory changed): the next message carries the fresh block. */
+  noteMemoryChange(projectId: string) {
+    for (const s of this.live.values()) if (s.projectId === projectId) s.memoryNotice = true;
   }
 
   /** The user's edit in the memory page; the assistant reads it with their next message. */
   async saveMemory(projectId: string, scope: MemoryScope, memory: unknown): Promise<AgentMemory> {
     if (!ID.test(projectId)) throw new RequestError(t('画布不存在'));
-    const saved = await this.memory.replace(scope, projectId, memory);
-    for (const s of this.live.values()) if (scope === 'user' || s.projectId === projectId) s.memoryNotice = true;
+    const seriesId = scope === 'series' ? await this.seriesOf(projectId) : undefined;
+    if (scope === 'series' && !seriesId) throw new RequestError(t('这块画布不属于任何系列'));
+    const saved = await this.memory.replace(scope, seriesId ?? projectId, memory);
+    for (const s of this.live.values()) {
+      if (scope === 'user' || (scope === 'board' && s.projectId === projectId)) s.memoryNotice = true;
+      else if (scope === 'series' && (await this.seriesOf(s.projectId)) === seriesId) s.memoryNotice = true;
+    }
     return saved;
   }
 
@@ -789,7 +908,7 @@ export class AgentHub {
       lines.push(`- 待办：${s.todos.map((x) => `${mark[x.status]} ${x.content}`).join('；')}`);
     }
     if (s.plan) lines.push('- 现在是计划模式');
-    const notes = p.items.filter((i) => i.kind === 'text').slice(-30);
+    const notes = p.items.filter((i) => i.kind === 'text' || i.kind === 'prompt').slice(-30);
     if (notes.length) lines.push(`- 画布上的文本节点：${notes.map((i) => `\`${i.id}\`「${i.name || '无标题'}」${(i.text ?? '').length} 字`).join('，')}`);
     const groups = new Map<string, string[]>();
     for (const i of p.items) if (i.group) groups.set(i.group, [...(groups.get(i.group) ?? []), i.name ?? '']);
@@ -827,6 +946,124 @@ export class AgentHub {
     return commands;
   }
 
+  /** The conversations of this board, newest first. */
+  async listSessions(projectId: string): Promise<AgentSessionList> {
+    if (!ID.test(projectId)) throw new RequestError(t('画布不存在'));
+    const index = await this.readIndex(projectId);
+    return {
+      current: index.current.id,
+      sessions: [...index.items].sort((a, b) => b.updatedAt - a.updatedAt).map((s) => ({ ...s })),
+    };
+  }
+
+  /** Starts an empty conversation; the current one stays in history and can be opened again. */
+  async newSession(projectId: string): Promise<AgentSessionList> {
+    const s = await this.session(projectId);
+    if (s.running) throw new RequestError(t('助手还在工作，先停下再开新对话'));
+    this.dropWatches(projectId);
+    s.agent.clearAllQueues();
+    s.agent.abort();
+    await s.done;
+    await this.save(s);
+    if (this.hasUserMessage(s)) await copyFile(this.file(projectId), this.archiveFile(projectId, s.sessionId)).catch(() => undefined);
+    const index = await this.readIndex(projectId);
+    const now = Date.now();
+    const id = `s${nanoid(8)}`;
+    index.current = { id, title: t('新对话'), createdAt: now };
+    await this.writeIndex(projectId, index);
+    await rm(this.file(projectId), { force: true });
+    s.agent.reset();
+    this.resetSession(s, id, now);
+    this.emit({ projectId, reset: true, sessionId: id });
+    return this.listSessions(projectId);
+  }
+
+  /** Opens a conversation from history and continues it; the current one stays in history too. */
+  async openSession(projectId: string, sessionId: string): Promise<AgentSessionList> {
+    if (!SESSION_ID.test(sessionId)) throw new RequestError(t('对话不存在'));
+    const s = await this.session(projectId);
+    if (sessionId === s.sessionId) return this.listSessions(projectId);
+    if (s.running) throw new RequestError(t('助手还在工作，先停下再切换对话'));
+    const index = await this.readIndex(projectId);
+    const meta = index.items.find((item) => item.id === sessionId);
+    if (!meta) throw new RequestError(t('对话不存在'));
+    this.dropWatches(projectId);
+    s.agent.clearAllQueues();
+    s.agent.abort();
+    await s.done;
+    await this.save(s);
+    if (this.hasUserMessage(s)) await copyFile(this.file(projectId), this.archiveFile(projectId, s.sessionId)).catch(() => undefined);
+    let saved: {
+      messages?: AgentMessage[];
+      usage?: AgentUsage;
+      archived?: AgentEntry[];
+      todos?: AgentTodo[];
+      plan?: boolean;
+      checkpoints?: Session['checkpoints'];
+    };
+    try {
+      saved = JSON.parse(await readFile(this.archiveFile(projectId, sessionId), 'utf8'));
+    } catch {
+      throw new RequestError(t('这段对话已经不在磁盘上了'));
+    }
+    const messages = (saved.messages ?? []).filter((m) => m.role !== 'system');
+    s.agent.reset();
+    s.agent.state.messages = [...s.agent.state.messages.filter((m) => m.role === 'system'), ...messages];
+    this.resetSession(s, sessionId, meta.createdAt);
+    s.title = meta.title === t('新对话') ? '' : meta.title;
+    s.usage = saved.usage ?? usageOf(messages);
+    s.archived = saved.archived ?? [];
+    s.todos = saved.todos ?? [];
+    s.plan = saved.plan === true;
+    s.checkpoints = saved.checkpoints ?? {};
+    index.current = { id: sessionId, title: meta.title, createdAt: meta.createdAt };
+    await this.writeIndex(projectId, index);
+    this.emit({ projectId, reset: true, sessionId });
+    return this.listSessions(projectId);
+  }
+
+  /** Renames a conversation; a name the user chose stays as it grows. */
+  async renameSession(projectId: string, sessionId: string, raw: string): Promise<AgentSessionList> {
+    if (!SESSION_ID.test(sessionId)) throw new RequestError(t('对话不存在'));
+    const title = raw.trim().replace(/\s+/g, ' ').slice(0, TITLE_CHARS + 10);
+    if (!title) throw new RequestError(t('名字不能为空'));
+    const index = await this.readIndex(projectId);
+    const item = index.items.find((old) => old.id === sessionId);
+    if (!item && index.current.id !== sessionId) throw new RequestError(t('对话不存在'));
+    if (item) item.title = title;
+    if (index.current.id === sessionId) index.current.title = title;
+    await this.writeIndex(projectId, index);
+    const live = await this.sessions.get(projectId)?.catch(() => undefined);
+    if (live?.sessionId === sessionId) live.title = title;
+    return this.listSessions(projectId);
+  }
+
+  /** Deletes a conversation; deleting the open one starts a new empty one. */
+  async deleteSession(projectId: string, sessionId: string): Promise<AgentSessionList> {
+    if (!SESSION_ID.test(sessionId)) throw new RequestError(t('对话不存在'));
+    const live = await this.sessions.get(projectId)?.catch(() => undefined);
+    if (live?.sessionId === sessionId && live.running) throw new RequestError(t('助手还在工作，先停下再删除对话'));
+    const index = await this.readIndex(projectId);
+    if (index.current.id === sessionId) {
+      if (live?.sessionId === sessionId) {
+        await this.clear(projectId);
+        return this.listSessions(projectId);
+      }
+      index.current = { id: `s${nanoid(8)}`, title: t('新对话'), createdAt: Date.now() };
+      index.items = index.items.filter((old) => old.id !== sessionId);
+      await this.writeIndex(projectId, index);
+      await rm(this.file(projectId), { force: true });
+      await rm(this.archiveFile(projectId, sessionId), { force: true });
+      return this.listSessions(projectId);
+    }
+    const item = index.items.find((old) => old.id === sessionId);
+    if (!item) throw new RequestError(t('对话不存在'));
+    index.items = index.items.filter((old) => old.id !== sessionId);
+    await this.writeIndex(projectId, index);
+    await rm(this.archiveFile(projectId, sessionId), { force: true });
+    return this.listSessions(projectId);
+  }
+
   async clear(projectId: string) {
     const s = await this.session(projectId);
     this.dropWatches(projectId);
@@ -835,6 +1072,23 @@ export class AgentHub {
     // After the run's own save, which would otherwise write the old conversation back.
     await s.done;
     s.agent.reset();
+    const index = await this.readIndex(projectId);
+    await rm(this.file(projectId), { force: true });
+    await rm(this.archiveFile(projectId, s.sessionId), { force: true });
+    const now = Date.now();
+    const id = `s${nanoid(8)}`;
+    index.current = { id, title: t('新对话'), createdAt: now };
+    index.items = index.items.filter((item) => item.id !== s.sessionId);
+    await this.writeIndex(projectId, index);
+    this.resetSession(s, id, now);
+    this.emit({ projectId, reset: true, sessionId: id });
+  }
+
+  /** Session fields that belong to the conversation, not to the agent instance. */
+  private resetSession(s: Session, id: string, createdAt: number) {
+    s.sessionId = id;
+    s.createdAt = createdAt;
+    s.title = '';
     s.archived = [];
     s.usage = { tokens: 0, cost: 0 };
     s.todos = [];
@@ -842,8 +1096,18 @@ export class AgentHub {
     s.planOff = false;
     s.checkpoints = {};
     s.contextStale = false;
-    await rm(this.file(projectId), { force: true });
-    this.emit({ projectId, reset: true });
+    s.autoRuns = 0;
+    s.calls = [];
+  }
+
+  private hasUserMessage(s: Session) {
+    return s.agent.state.messages.some((m) => m.role === 'user');
+  }
+
+  /** A board branched from another starts with the same memory. */
+  async copyBoardMemory(fromProjectId: string, toProjectId: string): Promise<void> {
+    if (!ID.test(fromProjectId) || !ID.test(toProjectId)) return;
+    await this.memory.copy(fromProjectId, toProjectId);
   }
 
   /** The board was deleted. */
@@ -854,12 +1118,82 @@ export class AgentHub {
     this.sessions.delete(projectId);
     this.live.delete(projectId);
     this.dropWatches(projectId);
-    await rm(this.file(projectId), { force: true });
+    const files = await readdir(this.dir).catch(() => [] as string[]);
+    await Promise.all(files.filter((name) => name.startsWith(`${projectId}.`)).map((name) => rm(join(this.dir, name), { force: true })));
     await this.memory.forget(projectId);
   }
 
   private file(projectId: string) {
     return join(this.dir, `${projectId}.json`);
+  }
+
+  private indexFile(projectId: string) {
+    return join(this.dir, `${projectId}.sessions.json`);
+  }
+
+  /** A conversation kept for the history list; the open one lives in `file()`. */
+  private archiveFile(projectId: string, sessionId: string) {
+    return join(this.dir, `${projectId}.${sessionId}.json`);
+  }
+
+  /**
+   * The board's conversations. Older builds kept one conversation in `<projectId>.json`; that becomes the
+   * first session the first time this is read, so nothing is lost on upgrade.
+   */
+  private async readIndex(projectId: string): Promise<SessionIndex> {
+    try {
+      const raw = JSON.parse(await readFile(this.indexFile(projectId), 'utf8')) as Partial<SessionIndex>;
+      if (
+        raw.version === 1 &&
+        raw.current &&
+        typeof raw.current.id === 'string' &&
+        SESSION_ID.test(raw.current.id) &&
+        Array.isArray(raw.items)
+      ) {
+        const items = raw.items
+          .filter((item) => item && typeof item.id === 'string' && SESSION_ID.test(item.id))
+          .map((item) => ({
+            id: item.id,
+            title: typeof item.title === 'string' && item.title ? item.title : t('新对话'),
+            createdAt: Number(item.createdAt) || Date.now(),
+            updatedAt: Number(item.updatedAt) || Number(item.createdAt) || Date.now(),
+          }));
+        return {
+          version: 1,
+          current: {
+            id: raw.current.id,
+            title: typeof raw.current.title === 'string' && raw.current.title ? raw.current.title : t('新对话'),
+            createdAt: Number(raw.current.createdAt) || Date.now(),
+          },
+          items,
+        };
+      }
+    } catch {
+      /* first time: build it below */
+    }
+    const now = Date.now();
+    let messages: AgentMessage[] = [];
+    let createdAt = now;
+    try {
+      const legacy = JSON.parse(await readFile(this.file(projectId), 'utf8')) as { messages?: AgentMessage[] };
+      messages = Array.isArray(legacy.messages) ? legacy.messages : [];
+    } catch {
+      /* no conversation yet */
+    }
+    const title = sessionTitle(messages);
+    const id = messages.length ? 'main' : `s${nanoid(8)}`;
+    const index: SessionIndex = {
+      version: 1,
+      current: { id, title, createdAt },
+      items: messages.length ? [{ id, title, createdAt, updatedAt: createdAt }] : [],
+    };
+    await this.writeIndex(projectId, index);
+    return index;
+  }
+
+  private async writeIndex(projectId: string, index: SessionIndex) {
+    await mkdir(this.dir, { recursive: true });
+    await writeJson(this.indexFile(projectId), () => index);
   }
 
   private session(projectId: string): Promise<Session> {
@@ -875,6 +1209,10 @@ export class AgentHub {
   private async open(projectId: string): Promise<Session> {
     if (!ID.test(projectId) || !(await this.deps.projects.get(projectId))) throw new RequestError(t('画布不存在'));
     if (!this.model) throw new RequestError(this.status.reason ?? t('画布助手还没有配置好'));
+    const index = await this.readIndex(projectId);
+    const sessionId = index.current.id;
+    const createdAt = index.current.createdAt;
+    const title = index.current.title === t('新对话') ? '' : index.current.title;
     let saved: {
       version?: number;
       messages?: AgentMessage[];
@@ -893,9 +1231,13 @@ export class AgentHub {
     const commercial = Boolean(this.deps.commercialOnly?.());
     const s = {
       projectId,
+      sessionId,
+      createdAt,
+      title,
       running: false,
       interrupt: new AbortController(),
       autoRuns: 0,
+      calls: [],
       commercial,
       lang: serverLang(),
       usage: !saved.usage ? usageOf(messages) : (saved.version ?? 0) < 3 ? recount(saved.usage, messages) : saved.usage,
@@ -936,7 +1278,23 @@ export class AgentHub {
         s.todos = list;
         this.emit({ projectId: s.projectId, todos: list });
       },
-      remember: (ops) => this.memory.apply(s.projectId, ops),
+      remember: async (ops) => {
+        const result = await this.memory.apply(s.projectId, ops, await this.seriesOf(s.projectId), { kind: 'chat' });
+        // The system prompt keeps the memory it opened with (for the cache); the next message carries the
+        // fresh block, so the model does not keep working from entries it just replaced.
+        if (result.done.length) s.memoryNotice = true;
+        return result;
+      },
+      rememberEntity: async (ops) => {
+        const result = await this.memory.applyEntities(s.projectId, ops, await this.seriesOf(s.projectId));
+        if (result.done.length) s.memoryNotice = true;
+        return result;
+      },
+      searchMemory: async (query) => this.memory.search(s.projectId, query, await this.seriesOf(s.projectId)),
+      readMemory: async (id) => {
+        const detail = await this.memory.detail(s.projectId, id, await this.seriesOf(s.projectId));
+        return detail ? describeMemory(detail) : undefined;
+      },
       ...extra,
     };
   }
@@ -1043,6 +1401,24 @@ export class AgentHub {
       parameters: Type.Unsafe(def.parameters as unknown as TSchema),
       execute: async (_id, args, signal, onUpdate) => {
         if (s.plan && !def.readOnly) throw new Error(t('现在是计划模式，不能执行「{label}」：先用 present_plan 把方案交给用户确认', { label: t(def.label) }));
+        // Three times the same call in a row: the answer will not change, so tell the model to move on.
+        const call = `${def.name}:${JSON.stringify(args)}`;
+        const last = s.calls.slice(-(SAME_CALL_LIMIT - 1));
+        if (!REPEATABLE.has(def.name) && last.length === SAME_CALL_LIMIT - 1 && last.every((c) => c === call)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: t('「{label}」用同样的参数已经连续调用过 {n} 次，再调用一次结果也一样。换一个做法：改参数、换工具，或者把要用户决定的事用 ask_user 问出来。', {
+                  label: t(def.label),
+                  n: last.length,
+                }),
+              },
+            ],
+            details: { summary: t('重复调用，没有执行') },
+          };
+        }
+        s.calls.push(call);
         // The prompts the user reads (and may edit) before anything is generated from them.
         const review = this.approvalMode !== 'risky' && def.prompts ? def.prompts(args as Record<string, unknown>).filter((p) => p.text.trim()) : [];
         // Tools with their own card (video batches, deleting) already ask, with more to say than this one.
@@ -1073,10 +1449,18 @@ export class AgentHub {
             },
           };
         }
-        const out = await def.run(
-          args as Record<string, unknown>,
-          this.context(s, { signal, progress: (text) => onUpdate?.({ content: [{ type: 'text', text }], details: { summary: text } }) }),
-        );
+        let out: ToolOutput;
+        try {
+          out = await def.run(
+            args as Record<string, unknown>,
+            this.context(s, { signal, progress: (text) => onUpdate?.({ content: [{ type: 'text', text }], details: { summary: text } }) }),
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          // The whole error goes to the log; the conversation keeps only the part that says what broke.
+          if (message.length > MAX_ERROR_CHARS) console.error(`agent: ${def.name} failed\n${message}`);
+          throw new Error(compactError(message));
+        }
         if (out.approval) this.replaceCards(s, def.name);
         // A card of the tool's own (video batches) shows the prompts too.
         if (out.approval && review.length) out.approval.prompts = review;
@@ -1130,8 +1514,7 @@ export class AgentHub {
     }
     if (s.memoryNotice) {
       s.memoryNotice = false;
-      const memory = await this.memories(s.projectId);
-      lines.push('用户在记忆页改过记忆，以这一份为准：', memoryBlock(memory.board, memory.user));
+      lines.push('记忆有更新（用户在记忆页改过，或助手刚写入），以这一份为准：', await this.memoryText(s.projectId));
     }
     const open = s.todos.filter((x) => x.status !== 'completed');
     if (open.length) {
@@ -1142,6 +1525,8 @@ export class AgentHub {
   }
 
   private async run(s: Session, first: AgentMessage[]) {
+    // A new run is a new chance to repeat itself: only calls of this run count against the limit.
+    s.calls = [];
     try {
       await this.manageContext(s);
       let next: AgentMessage[] = first;
@@ -1203,13 +1588,13 @@ export class AgentHub {
     this.event(s, focus === undefined ? t('对话比较长了，正在把较早的部分整理成摘要…') : t('正在把较早的对话整理成摘要…'));
     // In characters: Chinese runs about a token each, so this fits even a small window.
     const transcript = transcriptText(old, Math.min(120_000, Math.floor((this.model.contextWindow || Infinity) * 0.6)));
-    const memory = await this.memories(s.projectId);
+    const memory = await this.memoryText(s.projectId);
     const reply = await this.models.completeSimple(this.model, {
       systemPrompt: SUMMARY_PROMPT,
       messages: [
         {
           role: 'user',
-          content: [focus ? `用户希望这次整理特别保留：${focus}` : '', `现有记忆：\n${memoryBlock(memory.board, memory.user)}`, `要整理的对话：\n${transcript}`].filter(Boolean).join('\n\n'),
+          content: [focus ? `用户希望这次整理特别保留：${focus}` : '', `现有记忆：\n${memory}`, `要整理的对话：\n${transcript}`].filter(Boolean).join('\n\n'),
           timestamp: Date.now(),
         },
       ],
@@ -1225,8 +1610,11 @@ export class AgentHub {
       return 'failed';
     }
     // Lasting things the conversation settled, which the assistant did not write down while working.
-    const { done } = await this.memory.apply(s.projectId, memoryUpdates(text));
+    const updates = readMemoryUpdates(text);
+    if (updates.malformed) this.event(s, t('整理摘要里的记忆部分格式不对，这次没有自动写入'));
+    const { done, refused } = await this.memory.apply(s.projectId, updates.ops, await this.seriesOf(s.projectId), { kind: 'condense' });
     if (done.length) this.event(s, t('整理时记下了 {n} 处记忆：{list}', { n: done.length, list: done.join(t('；')) }));
+    if (refused.length) this.event(s, t('整理时有 {n} 处记忆没有写入：{list}', { n: refused.length, list: refused.join(t('；')) }));
     const state = await this.stateNote(s, old);
     const condensed: UserMessage = { role: 'user', content: summaryMessage(state ? `${summary}\n\n${state}` : summary, userWords(old)), timestamp: Date.now() };
     // Condensed messages cannot be gone back to: their messages are no longer there.
@@ -1277,16 +1665,27 @@ export class AgentHub {
 
   /** In line behind any save still running (a run's last save can overlap the next run's first). */
   private save(s: Session) {
+    const messages = s.agent.state.messages.filter((m) => m.role !== 'system').map(withoutImages);
     return writeJson(this.file(s.projectId), () => ({
       // 3: usage.tokens leaves out cache reads.
       version: 3,
-      messages: s.agent.state.messages.filter((m) => m.role !== 'system').map(withoutImages),
+      messages,
       usage: s.usage,
       archived: s.archived,
       todos: s.todos,
       plan: s.plan,
       checkpoints: s.checkpoints,
-    }));
+    })).then(async () => {
+      const index = await this.readIndex(s.projectId);
+      const title = s.title || sessionTitle(messages);
+      index.current = { id: s.sessionId, title, createdAt: s.createdAt };
+      // An empty conversation is not a history entry yet; it becomes one with the first user message.
+      if (messages.some((m) => m.role === 'user')) {
+        const item = { id: s.sessionId, title, createdAt: s.createdAt, updatedAt: Date.now() };
+        index.items = [item, ...index.items.filter((old) => old.id !== s.sessionId)];
+      }
+      await this.writeIndex(s.projectId, index);
+    });
   }
 
   /** A finished tool call as the panel shows it (also used while it still runs: `result` undefined). */

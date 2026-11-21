@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { imageSize } from 'image-size';
 import { nanoid } from 'nanoid';
@@ -23,11 +23,34 @@ const MIME_BY_EXT: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.obj': 'model/obj',
+  '.ply': 'model/ply',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.csv': 'text/csv',
 };
 
 const EXT_BY_MIME: Record<string, string> = Object.fromEntries(
   Object.entries(MIME_BY_EXT).map(([ext, mime]) => [mime, ext]),
 );
+
+/** The media kind a file maps to; unknown extensions fall back to a document. */
+export function kindFor(filename: string, mime?: string): MediaKind {
+  const type = mime ?? mimeFor(filename) ?? '';
+  if (type.startsWith('image/')) return 'image';
+  if (type.startsWith('video/')) return 'video';
+  if (type.startsWith('audio/')) return 'audio';
+  if (type.startsWith('model/')) return 'model3d';
+  return 'document';
+}
 
 export function mimeFor(filename: string): string | undefined {
   return MIME_BY_EXT[extname(filename).toLowerCase()];
@@ -73,6 +96,22 @@ export class AssetStore {
     return readFile(this.path(asset));
   }
 
+  /** Drops it from the library; `keepFile` leaves the file for boards that still show it. */
+  async remove(id: string, opts: { keepFile?: boolean } = {}): Promise<boolean> {
+    const asset = this.assets.get(id);
+    if (!asset) return false;
+    if (!opts.keepFile) {
+      try {
+        await unlink(this.path(asset));
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+    }
+    this.assets.delete(id);
+    await this.flush();
+    return true;
+  }
+
   /**
    * Stores a file. Images are measured here; videos need `size` (the browser
    * corrects it after loading metadata if it is off).
@@ -81,9 +120,11 @@ export class AssetStore {
     data: Uint8Array,
     opts: { filename?: string; mime?: string; size?: { width: number; height: number }; name?: string; comfyName?: string },
   ): Promise<StoredAsset> {
-    const mime = opts.mime || (opts.filename ? mimeFor(opts.filename) : undefined);
-    if (!mime || !EXT_BY_MIME[mime]) throw new Error(t('不支持的文件类型: {name}', { name: opts.filename ?? mime ?? 'unknown' }));
-    const kind: MediaKind = mime.startsWith('video/') ? 'video' : 'image';
+    const ext = opts.filename ? extname(opts.filename).toLowerCase() : undefined;
+    const mime = opts.mime || (ext ? MIME_BY_EXT[ext] : undefined);
+    const fileExt = ext && MIME_BY_EXT[ext] ? ext : mime ? EXT_BY_MIME[mime] : undefined;
+    if (!mime || !fileExt) throw new Error(t('不支持的文件类型: {name}', { name: opts.filename ?? mime ?? 'unknown' }));
+    const kind = kindFor(opts.filename ?? fileExt, mime);
     let width = opts.size?.width ?? 0;
     let height = opts.size?.height ?? 0;
     if (kind === 'image') {
@@ -92,9 +133,12 @@ export class AssetStore {
       height = dim.height;
       // EXIF rotations 5-8 swap the displayed axes.
       if (dim.orientation && dim.orientation >= 5) [width, height] = [height, width];
+    } else if (kind !== 'video') {
+      width = 0;
+      height = 0;
     }
     const id = nanoid(12);
-    const file = id + EXT_BY_MIME[mime];
+    const file = id + fileExt;
     const tmp = join(this.dir, `.${file}.tmp`);
     await writeFile(tmp, data);
     await rename(tmp, join(this.dir, file));

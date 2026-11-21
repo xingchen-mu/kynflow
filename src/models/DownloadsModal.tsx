@@ -16,9 +16,9 @@ const SOURCES: { id: ModelSource; label: string }[] = [
 ];
 
 export function sourceHelp(source: ModelSource, endpoint?: string): string {
-  if (source === 'auto') return t('中文界面先试 hf-mirror.com，连不上再试 huggingface.co（英文界面反过来），并记住能用的那个。自动模式下 token 只发给 huggingface.co。');
-  if (source === 'huggingface') return t('直接从 huggingface.co 下载。');
-  if (source === 'hf-mirror') return t('从国内镜像 hf-mirror.com 下载。填了 Hugging Face token 时，token 会经过镜像站。');
+  if (source === 'auto') return t('自动选择能连上的源。');
+  if (source === 'huggingface') return '';
+  if (source === 'hf-mirror') return t('从 hf-mirror.com 下载，token 会经过镜像站。');
   return t('从 {endpoint} 下载（需兼容 Hugging Face 的 /<仓库>/resolve/<版本>/<文件> 地址）。', { endpoint: endpoint || t('自定义地址') });
 }
 
@@ -215,7 +215,7 @@ export function DownloadsModal({ names, title, back }: { names: string[]; title?
             <SourcePicker value={info.source} endpoint={info.endpoint} onChange={(s) => void switchSource(s)} disabled={loading} />
           </div>
         )}
-        {info && <div className="m-help">{sourceHelp(info.source, info.endpoint)}</div>}
+        {info && sourceHelp(info.source, info.endpoint) && <div className="m-help">{sourceHelp(info.source, info.endpoint)}</div>}
       </section>
 
       {loading && !plan && names.length > 0 && (

@@ -1,26 +1,26 @@
 <div align="center">
 
-<img src="docs/media/logo.svg" width="72" alt="" />
+<img src="docs/media/kynflow-icon.png" width="72" alt="" />
 
-# Infinode
+# Kynflow
 
-**为 ComfyUI 深度适配的无限画布** · 生图、改图、生视频，每个结果都用连线连回它的来源
+**Agent 驱动的 ComfyUI 无限画布** · 生图、改图、生视频，每个结果都用连线连回它的来源
 
 [功能](#功能) · [快速开始](#快速开始) · [画布助手](#画布助手) · [Claude Code / Codex](#用-claude-code--codex-操作画布mcp) · [官方模板](#官方模板) · [导入你的工作流](#导入你自己的工作流) · [许可证](#许可证) · [English](#english)
 
-<img src="docs/media/hero.png" alt="Infinode 画布" />
+<img src="docs/media/hero.png" alt="Kynflow 画布" />
 
 </div>
 
 ## 这是什么
 
-ComfyUI 很强，但节点图不适合"边看边改"的创作。Infinode 是一个跑在你自己电脑上的网页画布：在底部写一句话出图，选中图片点一下就能改图、扩图、抠图、超清、生成视频，所有生成都交给**你自己的 ComfyUI** 完成。每个结果都会用一条线连回它的输入，整条创作链一目了然。
+ComfyUI 很强，但节点图不适合"边看边改"的创作。Kynflow（原 Infinode）是一个跑在你自己电脑上的网页画布：在底部写一句话出图，选中图片点一下就能改图、扩图、抠图、超清、生成视频，所有生成都交给**你自己的 ComfyUI** 完成。每个结果都会用一条线连回它的输入，整条创作链一目了然。
 
 也可以让 AI 来操作画布：右上角的**画布助手**能听懂"把选中的图各做一段视频"这样的话，甚至从一句话做出一条多镜头短剧；你常用的 **Claude Code、Codex** 也能通过 MCP 直接读写画布、出图出视频。
 
-Infinode 只做画布，不包含、也不分发任何模型。用哪个模型、哪个工作流，完全由你的 ComfyUI 决定；模型的许可证由使用者自己遵守，见[模型许可证](#模型许可证)。
+Kynflow 只做画布，不包含、也不分发任何模型。用哪个模型、哪个工作流，完全由你的 ComfyUI 决定；模型的许可证由使用者自己遵守，见[模型许可证](#模型许可证)。
 
-名字来自 infinite + node：无限画布上的每个结果，都是一个连着来源的节点。
+名字来自 Kinetic + Flow：Agent 在画布上持续执行、分支和推进，创作像一条不断流动的执行链。
 
 <div align="center">
 <img src="docs/media/demo.gif" alt="演示" width="860" />
@@ -84,7 +84,7 @@ npm run dev
 
 ### 桌面端
 
-项目也提供 Electron 桌面端。它会在本机启动 Infinode 服务并打开独立窗口，作品数据保存在系统的应用数据目录中，不需要手动打开浏览器：
+项目也提供 Electron 桌面端。它会在本机启动 Kynflow 服务并打开独立窗口，作品数据保存在系统的应用数据目录中，不需要手动打开浏览器：
 
 ```bash
 npm install
@@ -118,7 +118,7 @@ python3 -m http.server 4173 --directory site
 | 局域网 / 服务器，可直接访问 | ComfyUI 启动时加 `--listen`，在设置里填 `http://服务器IP:8188` |
 | 服务器，只监听它自己的 127.0.0.1 | 复制 `.env.example` 为 `.env`，填上 `SSH_HOST`（`~/.ssh/config` 里的主机别名，需免密登录）。`npm run dev` 会自动建立并保持 SSH 隧道 |
 
-Infinode 的后端只监听本机（`127.0.0.1:8787`）。想让局域网里的其他设备也能用，在 `.env` 里设置 `HOST=0.0.0.0`，然后用 IP 地址或 `xxx.local` 打开；想用别的域名访问（比如经过反向代理），把它加进 `.env` 的 `ALLOWED_HOSTS`。注意后端没有登录验证，同一网络里的人都能使用和删除你的作品，只在你信任的网络里这样做，见 [SECURITY.md](SECURITY.md)。
+Kynflow 的后端只监听本机（`127.0.0.1:8787`）。想让局域网里的其他设备也能用，在 `.env` 里设置 `HOST=0.0.0.0`，然后用 IP 地址或 `xxx.local` 打开；想用别的域名访问（比如经过反向代理），把它加进 `.env` 的 `ALLOWED_HOSTS`。注意后端没有登录验证，同一网络里的人都能使用和删除你的作品，只在你信任的网络里这样做，见 [SECURITY.md](SECURITY.md)。
 
 ## 使用
 
@@ -176,7 +176,7 @@ DEEPSEEK_API_KEY=sk-...                   # 默认模型 deepseek/deepseek-flash
 
 助手会记住值得长期保留的事，换一段对话、整理成摘要之后也还记得。记忆分两份：「这块画布」记人物、画风和定下来的事（包括你否掉的方案和原因）；「所有画布」记你的长期偏好和纠正过的做法，比如默认 16:9、不要字幕。你说「以后都……」、确认了某个决定、纠正它的做法时，它会自己记下来并告诉你；整理对话时也会补记它漏掉的。画布上已有的剧本、分镜和提示词不会抄进记忆。
 
-点面板顶部的大脑图标打开记忆页，可以查看、修改、删除、手动添加，也可以关掉某一份的自动记录。记忆只存在本机，删除画布时它的记忆一起删掉。
+点面板顶部的大脑图标打开记忆页，可以查看、修改、删除、手动添加、置顶，也可以关掉某一份的自动记录。助手改动一条记忆时，旧内容会留在历史里，不覆盖；只有生效中的条目会带给它，满了会先归档最旧的非置顶条目。记忆只存在本机，删除画布时它的记忆一起删掉，从快照分出画布时会带过去。
 
 ### 长对话
 
@@ -186,19 +186,19 @@ DEEPSEEK_API_KEY=sk-...                   # 默认模型 deepseek/deepseek-flash
 
 跟助手说故事和镜头，比如「做一个两个镜头的小短剧：深夜便利店门口，一个女孩在等人……」。它会按这个顺序做，每一步都留在画布上，你随时可以改：
 
-1. 先写一句话梗概和节拍表，再把**剧本**和**分镜表**写成画布上的文本节点。分镜表里每个镜头写清作用、景别和机位、起始画面、分步的动作、运镜、台词和声音；它按清单自查一遍（开头有没有钩子、视线接不接得上、有没有只写了情绪），再等你认可
+1. 先按题材（甜宠、悬疑、喜剧、家庭……）定节拍，写一句话梗概和节拍表，再把**剧本**和**分镜表**写成画布上的文本节点。分镜表里每个镜头写清作用、景别和机位、起始画面、分步的动作、结束状态、运镜、台词和声音：每个镜头都是单独生成的，上一镜的结束状态（谁在哪、东西在谁手里）要原样写进下一镜的起始画面。它按清单自查一遍（开头有没有钩子、视线接不接得上、道具有没有凭空消失、容易画崩的镜头有没有减负），再等你认可
 2. 出**角色设定图**（白底全身照、正脸特写）、**场景图**和重要道具图
-3. 每个镜头出一张**关键帧**（画动作开始前的那一刻），拼成一张图自己检查一遍，有问题的单独重做
+3. 每个镜头出一张**关键帧**（画动作开始前的那一刻），拼成一张图自己检查一遍，有问题的单独重做。人物占画面的主体：中景、近景先把大全景的场景图裁到这个镜头的取景，人才不会被画成大场景里的小人。有两个以上的人、或人和门、墙、栏杆有前后关系的镜头，再在取景图上用彩色方框标出每个人站在哪（站位图），画图模型照框摆位置，比照文字描述准得多；人物看着对话的对象或在意的东西，不看镜头
 4. 每个镜头生成一段**视频**：提交前面板上会弹出确认卡，写明段数和预计占用 GPU 多久，你点「开始」才会提交
-5. 先听每段的台词在哪几秒，再按分镜**剪辑成片**，台词不会被剪掉
+5. 先听每段的台词在哪几秒，再按分镜**剪辑成片**：台词不会被剪掉，每段对白的音量统一到 -16 LUFS（只有雨声、脚步的镜头不会被拉得和台词一样响），剪辑点不爆音，台词烧成画面下方的字幕（不要字幕跟它说一声）
 
 每一批跑完它会自动接着做，页面关了也照样进行；你可以随时插话、停止，或者说「重新剪一版」。
 
-这套做法写在 [server/agent/guides.ts](server/agent/guides.ts) 的短剧手册里：助手开始做之前先用 `read_guide` 读它，每一步之前再重读那一节。出图的提示词另有一本 Qwen-Image 手册，按 Qwen-Image 2.1 官方提示词改写模型的规则整理。通过 MCP 接入的外部 agent 也能读到这两本手册。
+这套做法写在 [server/agent/guides.ts](server/agent/guides.ts) 的短剧手册里：助手开始做之前先用 `read_guide` 读它，每一步之前再重读那一节。出图的提示词另有一本 Qwen-Image 手册，按 Qwen-Image 2.1 官方提示词改写模型的规则整理。故事本身怎么写好在编剧与类型手册（[server/agent/craft.ts](server/agent/craft.ts)）里：十二种题材的节拍和拍法、信息差和反转、改编小说时不偏离原作、十一种画风，改编自 [Toonflow](https://github.com/HBAI-Ltd/Toonflow-app) 的知识库（MIT），短剧手册里的状态链和稳定性预检也来自它。通过 MCP 接入的外部 agent 也能读到这些手册。
 
 ## 用 Claude Code / Codex 操作画布（MCP）
 
-Infinode 的后端自带一个 MCP 服务，地址是 `http://127.0.0.1:8787/mcp`。Claude Code、Codex 这类 agent 接上以后，能用和画布助手同一套工具读画布、看图、出图出视频、写剧本、剪辑成片，你在页面上实时看到结果。先运行 `npm run dev`（或 `npm start`），再接入：
+Kynflow 的后端自带一个 MCP 服务，地址是 `http://127.0.0.1:8787/mcp`。Claude Code、Codex 这类 agent 接上以后，能用和画布助手同一套工具读画布、看图、出图出视频、写剧本、剪辑成片，你在页面上实时看到结果。先运行 `npm run dev`（或 `npm start`），再接入：
 
 **Claude Code**
 
@@ -220,11 +220,11 @@ url = "http://127.0.0.1:8787/mcp"
 tool_timeout_sec = 600   # 默认 60 秒；等出图、剪辑会更久
 ```
 
-接好后直接说「看看我在 Infinode 里选中的图，帮它生成三个不同背景的版本」就行。
+接好后直接说「看看我在 Kynflow 里选中的图，帮它生成三个不同背景的版本」就行。
 
 - **它知道你在看什么**：打开着的页面会把当前画布、选中的节点和视野位置告诉后端。外部 agent 先调用 `get_context`，就知道「这张」「选中的」指哪些节点；不指定画布时，默认操作你正在看的那张。新生成的节点放在你的视野里，画布会自动移过去。
 - **哪些操作要你同意**：读画布、看图、等结果这类工具标注了只读，客户端可以直接放行；出图、出视频、剪辑会改动画布，按客户端的设置征求你同意。批量出视频很占 GPU，返回结果里会写明预计时长。
-- **工具一览**：`get_context`、`list_boards`、`create_board`、`read_board`、`read_guide`、`view_images`、`review_items`、`generate_image`、`batch_generate_images`、`generate_video`、`batch_generate_videos`、`list_workflows`、`run_workflow`、`wait_for_items`、`cancel_items`、`delete_items`、`move_items`、`arrange_items`、`update_items`、`save_snapshot`、`capture_frame`、`write_note`、`inspect_clips`、`assemble_video`。
+- **工具一览**：`get_context`、`list_boards`、`create_board`、`read_board`、`read_guide`、`view_images`、`review_items`、`generate_image`、`batch_generate_images`、`generate_video`、`batch_generate_videos`、`list_workflows`、`run_workflow`、`wait_for_items`、`cancel_items`、`delete_items`、`move_items`、`arrange_items`、`update_items`、`save_snapshot`、`capture_frame`、`write_note`、`crop_image`、`mark_layout`、`inspect_clips`、`assemble_video`。
 - **只对本机开放**：`/mcp` 只接受同一台电脑上的连接；把画布共享到局域网时，别人也连不上。只支持 stdio 的客户端可以用 [mcp-remote](https://www.npmjs.com/package/mcp-remote) 转接：`npx mcp-remote http://127.0.0.1:8787/mcp`。
 
 ## 官方模板
@@ -240,7 +240,7 @@ tool_timeout_sec = 600   # 默认 60 秒；等出图、剪辑会更久
 
 模板卡片的「缺少 N 项」里有「一键下载缺少的模型」，设置页里缺模型的内置工具旁边有「下载模型」。点开后先列出每个文件要放到哪个目录、多大、磁盘还剩多少，确认后开始下载，进度和速度实时显示。
 
-- **下到哪里**：Infinode 向 ComfyUI 读取它的模型目录（包括 `extra_model_paths.yaml` 里配置的目录），每类模型放进第一个同名目录。ComfyUI 在本机时直接写入；在服务器上并且 `.env` 里设置了 `SSH_HOST` 时，通过 SSH 在服务器上运行下载（服务器需要 `python3`），文件不经过你的电脑；都不满足时给出可以复制到服务器上运行的 `curl` 命令。
+- **下到哪里**：Kynflow 向 ComfyUI 读取它的模型目录（包括 `extra_model_paths.yaml` 里配置的目录），每类模型放进第一个同名目录。ComfyUI 在本机时直接写入；在服务器上并且 `.env` 里设置了 `SSH_HOST` 时，通过 SSH 在服务器上运行下载（服务器需要 `python3`），文件不经过你的电脑；都不满足时给出可以复制到服务器上运行的 `curl` 命令。
 - **下载源**：设置 →「模型下载」里可以选「自动」「Hugging Face」「hf-mirror 镜像」或自定义的兼容地址。「自动」在中文界面先试 hf-mirror.com，连不上再试 huggingface.co（英文界面反过来），并记住能用的那个。环境变量 `HF_ENDPOINT`（如 `https://hf-mirror.com`）也会被识别。
 - **需要申请的模型**（如 FLUX.2 [dev]）：先在 Hugging Face 模型页面同意许可，再在设置里填 Hugging Face token（或设置环境变量 `HF_TOKEN`）。「自动」模式下 token 只发给 huggingface.co；选了 hf-mirror 或自定义地址时，token 会经过那个站点。
 - **断点续传**：文件先写成 `*.part`，网络断了会自动重试并接着下载；取消后已下载的部分会保留，下次接着下。只下载模板里列出的 `.safetensors` / `.gguf` 文件，不会下载能执行代码的 `.ckpt` / `.pt`。
@@ -251,7 +251,7 @@ tool_timeout_sec = 600   # 默认 60 秒；等出图、剪辑会更久
 ## 导入你自己的工作流
 
 1. 在 ComfyUI 里打开你的工作流，菜单「工作流 → 导出 (API)」（Workflow → Export (API)）
-2. 在 Infinode 右上角「我的工作流」里导入这个 JSON
+2. 在 Kynflow 右上角「我的工作流」里导入这个 JSON
 3. 检查自动识别的映射：提示词、反向提示词、图片 / 视频输入、种子、尺寸、比例……也可以把任意节点字段（步数、强度、LoRA 权重、下拉选项）暴露成画布上的参数
 4. 保存后，它会出现在底部输入框的模型列表和图片工具栏的「我的工具」里
 
@@ -279,7 +279,7 @@ tool_timeout_sec = 600   # 默认 60 秒；等出图、剪辑会更久
 
 ### 模型许可证
 
-Infinode 的许可证只管它自己的代码，你用的每个模型另有许可证，商用前要分别确认。内置工具用到的两个模型限制比较多：
+Kynflow 的许可证只管它自己的代码，你用的每个模型另有许可证，商用前要分别确认。内置工具用到的两个模型限制比较多：
 
 - **Qwen-Image 2.1**：只允许研究和评估用途，商用要另外向模型方申请授权。需要商用的话，文生图和改图可以换用模板库里 Apache 2.0 的 Qwen-Image 2512、Qwen-Image-Edit 2511 或 Z-Image Turbo。
 - **MiniMax H3**：可以商用，但商用产品的界面上要标明"MiniMax H3"，年收入超过 2000 万美元要另外取得授权。它的许可证**不覆盖美国、欧盟、英国和韩国**：在这些地区不能使用这个模型，也不能展示它生成的内容。
@@ -310,32 +310,32 @@ Infinode 的许可证只管它自己的代码，你用的每个模型另有许�
 
 **一键下载很慢或连不上？** 在设置 →「模型下载」里把下载源换成「hf-mirror 镜像」。下载在 ComfyUI 所在的机器上进行，所以看的是那台机器的网络；断了重试会接着下载。
 
-**Codex 调用 Infinode 的工具时超时？** Codex 默认每次工具调用只等 60 秒。在 `config.toml` 里把 `tool_timeout_sec` 调大，或者让它分几次调用 `wait_for_items`（每次默认等 50 秒）。
+**Codex 调用 Kynflow 的工具时超时？** Codex 默认每次工具调用只等 60 秒。在 `config.toml` 里把 `tool_timeout_sec` 调大，或者让它分几次调用 `wait_for_items`（每次默认等 50 秒）。
 
 **改了 `PORT`？** MCP 地址跟着变成 `http://127.0.0.1:<PORT>/mcp`。
 
 ## 许可证
 
-Infinode 采用 [MIT 许可证](LICENSE)：个人和公司都可以免费使用、修改、分发，包括商用。
+Kynflow 采用 [MIT 许可证](LICENSE)：个人和公司都可以免费使用、修改、分发，包括商用。
 
-注意：MIT 只覆盖 Infinode 自己的代码。ComfyUI、自定义节点和模型各有自己的许可证，部分模型不允许商用，见[模型许可证](#模型许可证)；商用时可以在设置里打开「只用可以商用的模型」。`presets/` 中的模板来自 ComfyUI 官方模板（MIT），见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+注意：MIT 只覆盖 Kynflow 自己的代码。ComfyUI、自定义节点和模型各有自己的许可证，部分模型不允许商用，见[模型许可证](#模型许可证)；商用时可以在设置里打开「只用可以商用的模型」。`presets/` 中的模板来自 ComfyUI 官方模板（MIT），见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 欢迎参与贡献，请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-Infinode 是社区项目，与 Comfy Org 没有关联。ComfyUI 是 Comfy Org 的商标。
+Kynflow 是社区项目，与 Comfy Org 没有关联。ComfyUI 是 Comfy Org 的商标。
 
 ---
 
 ## English
 
-**Infinode** is an infinite canvas built for ComfyUI. Type a prompt to generate, select an image to edit, extend, cut out, upscale or animate it, and every result stays linked to the inputs it was made from. All generation runs on **your own ComfyUI** (local, LAN or remote over an automatic SSH tunnel). Infinode only does the canvas: it does not include or distribute any models, so which models and workflows you run is up to you.
+**Kynflow** is an infinite canvas built for ComfyUI. Type a prompt to generate, select an image to edit, extend, cut out, upscale or animate it, and every result stays linked to the inputs it was made from. All generation runs on **your own ComfyUI** (local, LAN or remote over an automatic SSH tunnel). Kynflow only does the canvas: it does not include or distribute any models, so which models and workflows you run is up to you.
 
 - Built-in tools: text-to-image, multi-reference editing, inpaint, erase, outpaint, background removal, SeedVR2 upscaling, image/text/first-last-frame/reference-to-video with native audio (MiniMax H3)
 - 25 official ComfyUI templates as ready-made tools, with per-template model checks, download links and target folders
 - One-click model downloads into ComfyUI's model folders (including `extra_model_paths.yaml` ones), resumable, from Hugging Face, hf-mirror.com or any compatible endpoint (`HF_ENDPOINT` is honoured, `HF_TOKEN` for gated models). When ComfyUI runs on a server and `SSH_HOST` is set, the server downloads the files itself over SSH (it needs `python3`); otherwise you get `curl` commands to run there
 - Import any workflow from ComfyUI's **Export (API)**: prompts, image inputs, seed, size and parameters are detected and editable
 - Drag a line out of an image to place the next generation exactly where you want it
-- Canvas assistant: a chat panel that reads the board, looks at images, generates and runs your workflows, on DeepSeek, any other model [pi-ai](https://github.com/earendil-works/pi) supports, or any OpenAI-compatible endpoint (set the key in `.env`). It can take a short drama from a one-line idea to a cut: script and shot list as text notes, character and scene sheets, keyframes, one video per shot (after you approve the GPU time), then an edit (needs ffmpeg)
+- Canvas assistant: a chat panel that reads the board, looks at images, generates and runs your workflows, on DeepSeek, any other model [pi-ai](https://github.com/earendil-works/pi) supports, or any OpenAI-compatible endpoint (set the key in `.env`). It can take a short drama from a one-line idea to a cut: script and shot list as text notes, character and scene sheets, keyframes, one video per shot (after you approve the GPU time), then an edit with dialogue levelled to one loudness and subtitles burnt in (needs ffmpeg)
 - Text notes on the board for scripts, shot lists and comments
 - English and Chinese interface: follows your browser's language, switchable in Settings; server messages and the assistant's replies follow it
 - A commercial-only switch in Settings turns off research-only and non-commercial models; every built-in tool and template is labeled with its license
@@ -354,7 +354,7 @@ npm run desktop:dev   # run the app in a desktop window
 npm run desktop:dist  # build an installer for the current platform
 ```
 
-The desktop app starts the local Infinode server itself and keeps its data in the system application-data directory. The `site/` directory contains the product page and interactive walkthrough; GitHub Actions publishes it to GitHub Pages on every push to `main`.
+The desktop app starts the local Kynflow server itself and keeps its data in the system application-data directory. The `site/` directory contains the product page and interactive walkthrough; GitHub Actions publishes it to GitHub Pages on every push to `main`.
 
 Prebuilt installers are attached to the [latest GitHub Release](../../releases/latest) for macOS, Windows and Linux. Pushing a `v*` tag builds and uploads the desktop packages automatically; an existing tag can also be selected from the workflow to backfill its assets.
 
@@ -364,4 +364,4 @@ Prebuilt installers are attached to the [latest GitHub Release](../../releases/l
 
 **Model licenses are separate.** The built-in image tools use Qwen-Image 2.1, which is licensed for research and evaluation only. MiniMax H3 allows commercial use with conditions, but its license does not cover the US, the EU, the UK or South Korea: the model may not be used, nor its outputs displayed, there. Z-Image Turbo, Qwen-Image 2512 / Edit 2511, Wan 2.2 and SeedVR2 are Apache 2.0. Check each model's own license before use.
 
-Infinode is a community project and is not affiliated with Comfy Org. ComfyUI is a trademark of Comfy Org.
+Kynflow is a community project and is not affiliated with Comfy Org. ComfyUI is a trademark of Comfy Org.

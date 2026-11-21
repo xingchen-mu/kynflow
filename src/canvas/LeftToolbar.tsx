@@ -1,7 +1,9 @@
-import { Hand, HelpCircle, ImagePlus, MousePointer2, Scan, Search, StickyNote, Workflow } from 'lucide-react';
+import { Flame, Hand, HelpCircle, ImagePlus, Images, MessageSquareText, MousePointer2, Scan, Search, StickyNote, Waypoints } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addFiles } from '../assets/actions';
-import { addNote } from './items';
+import { addFiles, UPLOAD_ACCEPT } from '../assets/actions';
+import { toggleAssets, useAssetDock } from '../assets/AssetDock';
+import { startReplication } from '../assistant/AgentPanel';
+import { addNote, addPrompt } from './items';
 import { ensureVisible, fitAll } from './view';
 import { select, setShowLinks, useStore } from '../store';
 import { t } from '../i18n';
@@ -28,6 +30,7 @@ const SHORTCUTS: [string, string][] = [
 export function LeftToolbar() {
   const tool = useStore((s) => s.tool);
   const showLinks = useStore((s) => s.showLinks);
+  const assetsOpen = useAssetDock((s) => s.open);
   const input = useRef<HTMLInputElement>(null);
   const [help, setHelp] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -54,36 +57,45 @@ export function LeftToolbar() {
   };
   return (
     <div className="leftbar" data-ui>
-      <button className={`tool ${tool === 'select' ? 'on' : ''}`} title={t('选择 (V)')} onClick={() => useStore.setState({ tool: 'select' })}>
+      <button className={`tool ${tool === 'select' ? 'on' : ''}`} data-tip={t('选择 (V)')} aria-label={t('选择 (V)')} onClick={() => useStore.setState({ tool: 'select' })}>
         <MousePointer2 />
       </button>
-      <button className={`tool ${tool === 'hand' ? 'on' : ''}`} title={t('抓手 (H)')} onClick={() => useStore.setState({ tool: 'hand' })}>
+      <button className={`tool ${tool === 'hand' ? 'on' : ''}`} data-tip={t('抓手 (H)')} aria-label={t('抓手 (H)')} onClick={() => useStore.setState({ tool: 'hand' })}>
         <Hand />
       </button>
+      <button className={`tool ${assetsOpen ? 'on' : ''}`} data-tip={t('展开或收起资产库 (⌘B)')} aria-label={t('资产库')} onClick={() => toggleAssets()}>
+        <Images />
+      </button>
       <div className="tool-sep" />
-      <button className="tool" title={t('上传图片或视频')} onClick={() => input.current?.click()}>
+      <button className="tool" data-tip={t('上传文件')} aria-label={t('上传文件')} onClick={() => input.current?.click()}>
         <ImagePlus />
       </button>
-      <button className="tool" title={t('添加文本（剧本、分镜、备注）')} onClick={addNote}>
+      <button className="tool" data-tip={t('添加文本（剧本、分镜、备注）')} aria-label={t('添加文本（剧本、分镜、备注）')} onClick={addNote}>
         <StickyNote />
       </button>
-      <button className="tool" title={t('显示全部 (⇧1)')} onClick={fitAll}>
+      <button className="tool" data-tip={t('添加提示词节点')} aria-label={t('添加提示词节点')} onClick={() => addPrompt()}>
+        <MessageSquareText />
+      </button>
+      <button className="tool" data-tip={t('爆款内容复刻')} aria-label={t('爆款内容复刻')} onClick={startReplication}>
+        <Flame />
+      </button>
+      <button className="tool" data-tip={t('显示全部 (⇧1)')} aria-label={t('显示全部 (⇧1)')} onClick={fitAll}>
         <Scan />
       </button>
-      <button className={`tool ${searchOpen ? 'on' : ''}`} title={t('搜索画布')} onClick={() => setSearchOpen((v) => !v)}>
+      <button className={`tool ${searchOpen ? 'on' : ''}`} data-tip={t('搜索画布')} aria-label={t('搜索画布')} onClick={() => setSearchOpen((v) => !v)}>
         <Search />
       </button>
-      <button className={`tool ${showLinks ? 'on-soft' : ''}`} title={showLinks ? t('隐藏连线 (L)') : t('显示连线 (L)')} onClick={() => setShowLinks(!showLinks)}>
-        <Workflow />
+      <button className={`tool ${showLinks ? 'on-soft' : ''}`} data-tip={showLinks ? t('隐藏连线 (L)') : t('显示连线 (L)')} aria-label={showLinks ? t('隐藏连线 (L)') : t('显示连线 (L)')} onClick={() => setShowLinks(!showLinks)}>
+        <Waypoints />
       </button>
       <div className="tool-sep" />
-      <button className={`tool ${help ? 'on' : ''}`} title={t('快捷键')} onClick={() => setHelp((v) => !v)}>
+      <button className={`tool ${help ? 'on' : ''}`} data-tip={t('快捷键')} aria-label={t('快捷键')} onClick={() => setHelp((v) => !v)}>
         <HelpCircle />
       </button>
       <input
         ref={input}
         type="file"
-        accept="image/*,video/*"
+        accept={UPLOAD_ACCEPT}
         multiple
         hidden
         onChange={(e) => {
@@ -110,7 +122,7 @@ export function LeftToolbar() {
           {results.map((item) => (
             <button key={item.id} className="canvas-search-result" onClick={() => jump(item.id)}>
               <b>{item.name || item.id}</b>
-              <small>{item.kind === 'text' ? item.text || t('空文本') : item.request && 'prompt' in item.request ? item.request.prompt || t('没有提示词') : t('媒体节点')}</small>
+              <small>{item.kind === 'text' || item.kind === 'prompt' ? item.text || t('空文本') : item.request && 'prompt' in item.request ? item.request.prompt || t('没有提示词') : t('媒体节点')}</small>
             </button>
           ))}
         </div>

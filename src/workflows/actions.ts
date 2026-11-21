@@ -3,7 +3,7 @@ import { setWorkflows, useStore } from '../store';
 import { api } from '../lib/api';
 import { displaySize } from '../../shared/geometry';
 import { aspectValue } from '../generation/models';
-import { IMAGE_LONG_SIDE, VIDEO_LONG_SIDE } from '../canvas/items';
+import { CARD_SIZE } from '../../shared/media';import { IMAGE_LONG_SIDE, VIDEO_LONG_SIDE } from '../canvas/items';
 import { launch } from '../generation/tasks';
 
 const get = useStore.getState;
@@ -17,13 +17,14 @@ export function findWorkflow(id: string): WorkflowLike | undefined {
 /** The imported workflow or preset the composer currently points at, if any. */
 export function activeWorkflow(): WorkflowLike | undefined {
   const { composer } = get();
-  const id = composer.mode === 'image' ? composer.imageModel : composer.videoModel;
+  if (composer.workflowId) return findWorkflow(composer.workflowId);
+  const id = composer.mode === 'image' ? composer.imageModel : composer.mode === 'video' ? composer.videoModel : '';
   return id.startsWith('custom:') ? findWorkflow(id.slice(7)) : undefined;
 }
 /** Runs an imported workflow with the given board items as its image/video inputs. */
 export async function runWorkflow(
   wf: WorkflowLike,
-  opts: { prompt?: string; images: CanvasItem[]; videos?: CanvasItem[]; mask?: AssetInfo; aspect?: string; count?: number },
+  opts: { prompt?: string; images: CanvasItem[]; videos?: CanvasItem[]; prompts?: CanvasItem[]; mask?: AssetInfo; aspect?: string; count?: number },
 ) {
   const { composer } = get();
   const first = opts.images[0]?.asset;
@@ -34,7 +35,13 @@ export async function runWorkflow(
   const defaultRatio = Number(widthInput?.default) / Number(heightInput?.default);
   const ratio =
     aspectValue(aspect) ??
-    (first ? first.width / first.height : Number.isFinite(defaultRatio) && defaultRatio > 0 ? defaultRatio : wf.kind === 'video' ? 16 / 9 : 1);
+    (first ? first.width / first.height : Number.isFinite(defaultRatio) && defaultRatio > 0 ? defaultRatio : wf.kind === 'video' ? 16 / 9 : wf.kind === 'image' ? 1 : 1);
+  const size =
+    wf.kind === 'image'
+      ? displaySize(ratio, 1, IMAGE_LONG_SIDE)
+      : wf.kind === 'video'
+        ? displaySize(ratio, 1, VIDEO_LONG_SIDE)
+        : { w: CARD_SIZE[wf.kind].width, h: CARD_SIZE[wf.kind].height };
   await launch({
     request: {
       op: 'custom',
@@ -48,8 +55,8 @@ export async function runWorkflow(
     },
     kind: wf.kind,
     count: opts.count ?? 1,
-    size: displaySize(ratio, 1, wf.kind === 'video' ? VIDEO_LONG_SIDE : IMAGE_LONG_SIDE),
-    inputs: [...opts.images, ...(opts.videos ?? [])],
+    size,
+    inputs: [...opts.images, ...(opts.videos ?? []), ...(opts.prompts ?? [])],
   });
 }
 

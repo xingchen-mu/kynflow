@@ -38,12 +38,13 @@ export function registerSettingsRoutes(app: Hono, { settings, comfy, assets, cap
       agentBaseUrl?: string;
       agentApiKey?: string;
       clearAgentApiKey?: boolean;
-      agentVision?: boolean;
       agentThinking?: string;
       agentApprovalMode?: ApprovalMode;
       /** null: back to the default. */
       agentContextWindow?: number | null;
       agentReasoning?: boolean;
+      agentEmbeddingModel?: string;
+      agentEmbeddingBaseUrl?: string;
       modelSource?: unknown;
       modelEndpoint?: string;
       hfToken?: string;
@@ -95,11 +96,12 @@ export function registerSettingsRoutes(app: Hono, { settings, comfy, assets, cap
       body.agentBaseUrl !== undefined ||
       body.agentApiKey !== undefined ||
       body.clearAgentApiKey === true ||
-      body.agentVision !== undefined ||
       body.agentThinking !== undefined ||
       body.agentApprovalMode !== undefined ||
       body.agentContextWindow !== undefined ||
-      body.agentReasoning !== undefined;
+      body.agentReasoning !== undefined ||
+      body.agentEmbeddingModel !== undefined ||
+      body.agentEmbeddingBaseUrl !== undefined;
     if (agentChanged) {
       if (body.agentContextWindow !== undefined && body.agentContextWindow !== null && !isContextWindow(body.agentContextWindow)) {
         throw new RequestError(t('上下文长度要填 {min}–{max} 之间的整数（单位 token）', { min: CONTEXT_WINDOW.min, max: CONTEXT_WINDOW.max }));
@@ -117,18 +119,26 @@ export function registerSettingsRoutes(app: Hono, { settings, comfy, assets, cap
           }
         } else baseUrl = '';
       }
+      // A different model, endpoint or key means reopening conversations; approval and thinking apply in place.
+      const model = () => {
+        const { approvalMode: _a, thinking: _t, ...rest } = settings.agentConfig();
+        return JSON.stringify(rest);
+      };
+      const before = model();
       await settings.saveAgentConfig({
         model: body.agentModel,
         baseUrl,
         apiKey: body.agentApiKey,
         clearApiKey: body.clearAgentApiKey,
-        vision: typeof body.agentVision === 'boolean' ? body.agentVision : undefined,
         thinking: body.agentThinking,
         approvalMode: APPROVAL_MODES.includes(body.agentApprovalMode as ApprovalMode) ? body.agentApprovalMode : undefined,
         contextWindow: body.agentContextWindow,
         reasoning: typeof body.agentReasoning === 'boolean' ? body.agentReasoning : undefined,
+        embeddingModel: typeof body.agentEmbeddingModel === 'string' ? body.agentEmbeddingModel : undefined,
+        embeddingBaseUrl: typeof body.agentEmbeddingBaseUrl === 'string' ? body.agentEmbeddingBaseUrl : undefined,
       });
-      await agent.reconfigure();
+      if (model() === before) agent.refreshRuntime();
+      else await agent.reconfigure();
     }
     return c.json({ settings: settings.value, capabilities: await capabilities.get(true) });
   });

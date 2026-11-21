@@ -8,6 +8,7 @@ import { msg } from '../../shared/i18n.ts';
 import { blockReason, isBlock } from '../../shared/licenses.ts';
 import { featureKey } from '../workflows/index.ts';
 import { list, t } from '../i18n.ts';
+import { reviewLine } from './review.ts';
 
 /** What the agent needs from the server. */
 export interface CanvasDeps {
@@ -24,7 +25,7 @@ export interface CanvasDeps {
 }
 
 /** Same long sides the page uses, so agent results look like the user's own. */
-export const LONG_SIDE: Record<MediaKind, number> = { image: 512, video: 640 };
+export const LONG_SIDE: Record<MediaKind, number> = { image: 512, video: 640, audio: 360, model3d: 360, document: 420 };
 
 export async function readBoard(deps: CanvasDeps, projectId: string): Promise<Project> {
   const p = await deps.projects.get(projectId);
@@ -79,19 +80,24 @@ function clip(s: string, max: number) {
 
 /** One line per item for the model: id, kind, name, state, links and prompt (or a note's text). */
 export function describeItem(deps: CanvasDeps, item: CanvasItem, promptChars = 80): string {
-  if (item.kind === 'text') {
+  if (item.kind === 'text' || item.kind === 'prompt') {
     const text = item.text?.trim() ?? '';
-    return [`\`${item.id}\` 文本`, item.name ? `「${clip(item.name, 40)}」` : '', text ? `内容：${promptChars > 1000 ? text : clip(text, promptChars)}` : '（空）']
+    const kind = item.kind === 'prompt' ? '提示词' : '文本';
+    return [`\`${item.id}\` ${kind}`, item.name ? `「${clip(item.name, 40)}」` : '', text ? `内容：${promptChars > 1000 ? text : clip(text, promptChars)}` : '（空）']
       .filter(Boolean)
       .join(' · ');
   }
   const state = stateOf(deps, item);
-  const parts = [`\`${item.id}\` ${item.kind === 'video' ? '视频' : '图片'}`];
+  const mediaKind = item.kind === 'video' ? '视频' : item.kind === 'audio' ? '音频' : item.kind === 'model3d' ? '3D 模型' : item.kind === 'document' ? '文档' : '图片';
+  const parts = [`\`${item.id}\` ${mediaKind}`];
   if (item.name) parts.push(`「${clip(item.name, 40)}」`);
   if (item.group) parts.push(`类型：${item.group}`);
-  parts.push(state.done ? `${state.media.width}×${state.media.height}` : state.text);
+  parts.push(state.done ? (state.media.width > 0 ? `${state.media.width}×${state.media.height}` : mediaKind) : state.text);
+  const review = reviewLine(item);
+  if (review) parts.push(review);
   const inputs = item.inputs ?? (item.sourceId ? [item.sourceId] : []);
   if (inputs.length) parts.push(`由 ${inputs.map((id) => `\`${id}\``).join(' ')} 生成`);
+  if (item.promptId) parts.push(`提示词来自 \`${item.promptId}\``);
   const prompt = item.request && 'prompt' in item.request ? item.request.prompt : undefined;
   if (prompt) parts.push(`提示词：${clip(prompt, promptChars)}`);
   return parts.join(' · ');
@@ -139,6 +145,8 @@ export interface BatchJob {
   name?: string;
   /** Image type (layout 'groups'): jobs of one type stack in one column. */
   group?: string;
+  /** The item this one replaces (a retried result); bounds the retry budget. */
+  retryOf?: string;
   /** Placeholder size; by default from the output size. */
   size?: { w: number; h: number };
 }
@@ -285,6 +293,7 @@ export async function launchBatch(
     inputs: job.inputs.length ? job.inputs.map((it) => it.id) : undefined,
     name: job.name?.trim().slice(0, 60) || undefined,
     group: job.group?.trim().slice(0, 30) || undefined,
+    retryOf: job.retryOf,
     createdAt: now,
   }));
   await patchBoard(deps, projectId, { upsert: items });
@@ -300,9 +309,9 @@ export async function launch(
   deps: CanvasDeps,
   writer: ResultWriter,
   projectId: string,
-  opts: { request: TaskRequest; count: number; inputs: CanvasItem[]; name?: string; group?: string; images?: boolean; view?: { x: number; y: number } },
+  opts: { request: TaskRequest; count: number; inputs: CanvasItem[]; name?: string; group?: string; retryOf?: string; images?: boolean; view?: { x: number; y: number } },
 ): Promise<{ items: CanvasItem[]; error?: string }> {
-  const jobs = Array.from({ length: opts.count }, () => ({ request: opts.request, inputs: opts.inputs, name: opts.name, group: opts.group }));
+  const jobs = Array.from({ length: opts.count }, () => ({ request: opts.request, inputs: opts.inputs, name: opts.name, group: opts.group, retryOf: opts.retryOf }));
   const { items, failed } = await launchBatch(deps, writer, projectId, jobs, { layout: opts.images ? 'groups' : 'row', view: opts.view });
   if (!items.length) throw new Error(failed[0]?.error ?? t('提交失败'));
   return { items, error: failed[0]?.error };

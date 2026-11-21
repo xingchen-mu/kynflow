@@ -38,7 +38,7 @@ test('read_guide gives the whole guide, or one section of it', async () => {
 
 test('the guides and the system prompt only name tools and parameters that exist', () => {
   // H3 prompt fields, and the tags the runtime wraps messages in.
-  const known = new Set<string>(['integrated_multimodal_description', 'overall_soundscape', 'non_diegetic_music', 'canvas_context', 'canvas_event']);
+  const known = new Set<string>(['integrated_multimodal_description', 'overall_soundscape', 'non_diegetic_music', 'subject_definitions', 'summary', 'retention_analysis', 'detailed_description', 'fully_preserved', 'partially_preserved', 'attribute_transfer', 'canvas_context', 'canvas_event']);
   for (const t of tools as CanvasTool[]) {
     known.add(t.name);
     paramNames(t.parameters, known);

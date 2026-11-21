@@ -17,7 +17,7 @@ export function registerAssetsRoutes(app: Hono, { assets, thumbs, projects }: Pi
     const body = await c.req.parseBody();
     const file = body.file;
     if (!(file instanceof File)) return c.json({ error: t('缺少文件') }, 400);
-    if (file.size > 200 * 1024 * 1024) return c.json({ error: t('文件过大（上限 200MB）') }, 400);
+    if (file.size > 512 * 1024 * 1024) return c.json({ error: t('文件过大（上限 512MB）') }, 400);
     const width = Number(body.width) || undefined;
     const height = Number(body.height) || undefined;
     const asset = await assets.save(new Uint8Array(await file.arrayBuffer()), {
@@ -35,11 +35,23 @@ export function registerAssetsRoutes(app: Hono, { assets, thumbs, projects }: Pi
     return c.json({ ok: true });
   });
 
+  app.delete('/api/assets/:id', async (c) => {
+    const id = c.req.param('id');
+    const asset = assets.get(id);
+    if (!asset) return c.json({ error: t('资产不存在') }, 404);
+    // Boards that still show it keep working: the file stays, only the library entry goes.
+    const usage = await projects.assetUsage([id]);
+    const references = usage[id]?.references ?? 0;
+    await assets.remove(id, { keepFile: references > 0 });
+    if (!references) await thumbs.remove(asset.file);
+    return c.json({ ok: true, references });
+  });
+
   // Small WebP versions for the board (a frame for videos), so a big board does not load every original.
   app.get('/files/thumb/:file', async (c) => {
     const name = c.req.param('file');
     const mime = /^[\w-]+\.\w+$/.test(name) ? mimeFor(name) : undefined;
-    if (!mime) return c.notFound();
+    if (!mime || (!mime.startsWith('image/') && !mime.startsWith('video/'))) return c.notFound();
     const source = `${assets.dir}/${name}`;
     try {
       await stat(source);

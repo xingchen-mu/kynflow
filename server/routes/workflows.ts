@@ -1,10 +1,21 @@
 import { Hono } from 'hono';
-import type { CustomWorkflow, WorkflowDraft } from '../../shared/types.ts';
+import type { CustomWorkflow, WorkflowCapabilityInfo, WorkflowDraft } from '../../shared/types.ts';
 import type { WorkflowIssue } from '../../shared/types.ts';
+import { isMediaKind } from '../../shared/media.ts';
 import { checkWorkflow, detectWorkflow, graphIssues, listFields, parseWorkflowJson } from '../workflows/custom.ts';
+import { CAPABILITIES, resolveCapability } from '../workflows/capability.ts';
 import { RequestError } from '../workflows/index.ts';
 import { t } from '../i18n.ts';
 import type { Services } from '../services.ts';
+
+function validateDeclaration(capability?: WorkflowCapabilityInfo) {
+  if (capability?.source !== 'declared') return;
+  if (!CAPABILITIES.some((c) => c === capability.capability)) throw new RequestError(t('无效的工作流能力声明'));
+  if (capability.cost && !['low', 'medium', 'high'].includes(capability.cost)) throw new RequestError(t('无效的工作流成本档位'));
+  if (capability.expected_seconds !== undefined && (!Number.isFinite(capability.expected_seconds) || capability.expected_seconds <= 0)) {
+    throw new RequestError(t('预计 GPU 秒数必须是有限正数'));
+  }
+}
 
 export function registerWorkflowsRoutes(app: Hono, { workflows, capabilities }: Pick<Services, 'workflows' | 'capabilities'>) {
   app.get('/api/workflows', (c) => c.json(workflows.list()));
@@ -17,11 +28,13 @@ export function registerWorkflowsRoutes(app: Hono, { workflows, capabilities }: 
     const { graph, saved } = parseWorkflowJson(body.json);
     const info = await capabilities.objectInfo();
     const draft = detectWorkflow(graph, info);
+    const workflow: WorkflowDraft['workflow'] = saved?.inputs && saved.outputs
+      ? { name: saved.name ?? '', description: saved.description, kind: isMediaKind(saved.kind) ? saved.kind : 'image', graph, inputs: saved.inputs, outputs: saved.outputs, capability: saved.capability }
+      : { ...draft.workflow, name: (body.name ?? '').replace(/\.json$/i, '').trim() };
+    validateDeclaration(workflow.capability);
     const result: WorkflowDraft = {
       ...draft,
-      workflow: saved?.inputs && saved.outputs
-        ? { name: saved.name ?? '', description: saved.description, kind: saved.kind === 'video' ? 'video' : 'image', graph, inputs: saved.inputs, outputs: saved.outputs }
-        : { ...draft.workflow, name: (body.name ?? '').replace(/\.json$/i, '').trim() },
+      workflow: { ...workflow, capability: resolveCapability(workflow, info, workflow.capability) },
       issues: info ? graphIssues(graph, info) : [offlineIssue()],
     };
     return c.json(result);
@@ -34,7 +47,7 @@ export function registerWorkflowsRoutes(app: Hono, { workflows, capabilities }: 
     const info = await capabilities.objectInfo();
     const { outputCandidates } = detectWorkflow(wf.graph, info);
     const result: WorkflowDraft = {
-      workflow: wf,
+      workflow: { ...wf, capability: resolveCapability(wf, info, wf.capability) },
       fields: listFields(wf.graph, info),
       outputCandidates,
       issues: info ? graphIssues(wf.graph, info) : [offlineIssue()],
@@ -48,7 +61,11 @@ export function registerWorkflowsRoutes(app: Hono, { workflows, capabilities }: 
     }
     const problem = checkWorkflow(data);
     if (problem) throw new RequestError(problem);
-    const wf = await workflows.save(data);
+    // Author choices survive, but constraints always follow the latest graph and input mapping.
+    validateDeclaration(data.capability);
+    const info = await capabilities.objectInfo();
+    const capability = resolveCapability(data, info, data.capability);
+    const wf = await workflows.save({ ...data, capability });
     capabilities.invalidate();
     return wf;
   }

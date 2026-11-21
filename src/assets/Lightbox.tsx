@@ -1,4 +1,4 @@
-import { Download, X } from 'lucide-react';
+import { Box, Download, FileText, Music, X } from 'lucide-react';
 import { useEffect } from 'react';
 import type { TaskRequest } from '../../shared/types';
 import { download } from './actions';
@@ -64,8 +64,20 @@ export function Lightbox() {
       <div className="lb-media" onPointerDown={(e) => e.target === e.currentTarget && close()}>
         {item.kind === 'image' ? (
           <img src={item.asset.url} alt="" />
-        ) : (
+        ) : item.kind === 'video' ? (
           <video src={item.asset.url} controls autoPlay loop playsInline />
+        ) : item.kind === 'audio' ? (
+          <div className="lb-file">
+            <Music />
+            <span>{item.name ?? item.asset.url.split('/').pop()}</span>
+            <audio src={item.asset.url} controls autoPlay />
+          </div>
+        ) : (
+          <div className="lb-file">
+            {item.kind === 'model3d' ? <Box /> : <FileText />}
+            <span>{item.name ?? item.asset.url.split('/').pop()}</span>
+            <small>{item.kind === 'model3d' ? t('3D 模型') : t('文本文档')}</small>
+          </div>
         )}
       </div>
       <div className="lb-side">
@@ -83,12 +95,14 @@ export function Lightbox() {
               <span>{v}</span>
             </div>
           ))}
-          <div className="lb-row">
-            <span>{t('尺寸')}</span>
-            <span>
-              {item.asset.width} × {item.asset.height}
-            </span>
-          </div>
+          {item.asset.width > 0 && item.asset.height > 0 && (
+            <div className="lb-row">
+              <span>{t('尺寸')}</span>
+              <span>
+                {item.asset.width} × {item.asset.height}
+              </span>
+            </div>
+          )}
           {seed !== undefined && (
             <div className="lb-row">
               <span>{t('种子')}</span>
@@ -97,7 +111,7 @@ export function Lightbox() {
           )}
         </div>
         <button className="btn primary wide" onClick={() => download(item)}>
-          <Download /> {t('下载原图')}
+          <Download /> {item.kind === 'image' ? t('下载原图') : t('下载文件')}
         </button>
       </div>
     </div>

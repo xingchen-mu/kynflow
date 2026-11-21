@@ -181,6 +181,12 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
     const thumb = await request(asset.url.replace('/files/', '/files/thumb/'));
     assert.equal(thumb.status, 200);
     assert.equal(thumb.headers.get('content-type'), 'image/webp');
+    assert.equal((await request(`/api/assets/${asset.id}`, 'DELETE')).status, 200);
+    assert.equal((await request(asset.url)).status, 404);
+    assert.equal((await request(`/api/assets/${asset.id}`, 'DELETE')).status, 404);
+    assert.deepEqual(await (await request('/api/assets')).json(), []);
+    await assert.rejects(readFile(join(dataDir, 'assets', asset.url.split('/').pop()!)));
+    await assert.rejects(readFile(join(dataDir, 'thumbs', `${asset.url.split('/').pop()!}.webp`)));
   });
 
   await t.test('workflow imports and settings retain validation and persistence', async () => {
@@ -191,12 +197,43 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
     assert.equal(drafted.status, 200);
     const draft: WorkflowDraft = await drafted.json();
     assert.ok(draft.issues.some((issue) => issue.type === 'offline'));
-    const created = await request('/api/workflows', 'POST', { workflow: draft.workflow });
+    assert.equal(draft.workflow.capability?.source, 'degraded');
+    assert.equal(
+      draft.workflow.capability?.constraints.min_images,
+      draft.workflow.inputs.filter((input) => input.type === 'image' && !input.optional).length,
+    );
+    const declared = { ...draft.workflow.capability!, source: 'declared' as const, cost: 'high' as const, expected_seconds: 123 };
+    const created = await request('/api/workflows', 'POST', { workflow: { ...draft.workflow, capability: declared } });
     assert.equal(created.status, 200);
     const workflow = await created.json();
-    assert.equal(JSON.parse(await readFile(join(dataDir, 'workflows', `${workflow.id}.json`), 'utf8')).name, 'Imported');
-    assert.equal((await request(`/api/workflows/${workflow.id}/draft`)).status, 200);
-    assert.equal((await request(`/api/workflows/${workflow.id}`, 'PUT', { workflow: { ...draft.workflow, name: 'Updated' } })).status, 200);
+    const saved = JSON.parse(await readFile(join(dataDir, 'workflows', `${workflow.id}.json`), 'utf8'));
+    assert.equal(saved.name, 'Imported');
+    assert.deepEqual(
+      [saved.capability.source, saved.capability.cost, saved.capability.expected_seconds],
+      ['declared', 'high', 123],
+    );
+    const savedDraft = await request(`/api/workflows/${workflow.id}/draft`);
+    assert.equal(savedDraft.status, 200);
+    assert.equal((await savedDraft.json()).workflow.capability.expected_seconds, 123);
+    const updated = await request(`/api/workflows/${workflow.id}`, 'PUT', { workflow: { ...draft.workflow, name: 'Updated', capability: declared } });
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json()).capability.cost, 'high');
+    const shared = await request('/api/workflows/draft', 'POST', {
+      json: { format: 'infinode/workflow', version: 1, ...workflow },
+    });
+    assert.equal(shared.status, 200);
+    const sharedDraft: WorkflowDraft = await shared.json();
+    assert.deepEqual(
+      [sharedDraft.workflow.capability?.source, sharedDraft.workflow.capability?.cost, sharedDraft.workflow.capability?.expected_seconds],
+      ['declared', 'high', 123],
+    );
+    for (const capability of [
+      { ...declared, capability: 'not-a-capability' },
+      { ...declared, cost: 'extreme' },
+      { ...declared, expected_seconds: 0 },
+    ]) {
+      assert.equal((await request('/api/workflows', 'POST', { workflow: { ...draft.workflow, capability } })).status, 400);
+    }
     assert.equal((await request(`/api/workflows/${workflow.id}`, 'DELETE')).status, 200);
     assert.equal((await request('/api/workflows/draft', 'POST', { json: { nodes: [], links: [] } })).status, 400);
     const settings = await request('/api/settings', 'PUT', { language: 'en', commercialOnly: true });
@@ -207,7 +244,6 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
       agentModel: 'local-chat',
       agentBaseUrl: 'http://127.0.0.1:11434/v1/',
       agentApiKey: 'route-test-secret',
-      agentVision: true,
       agentThinking: 'medium',
       agentContextWindow: 32768,
       agentReasoning: true,

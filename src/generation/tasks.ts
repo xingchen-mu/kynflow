@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { GAP, boundsOf, placeRow, viewportCenter } from '../../shared/geometry';
 import { inputIds } from '../canvas/items';
 import { ensureVisible } from '../canvas/view';
+import { t } from '../i18n';
 
 const get = useStore.getState;
 
@@ -21,11 +22,13 @@ async function submit(item: CanvasItem, request: TaskRequest) {
   patchEverywhere(item.id, { taskId, resultIndex: 0, error: undefined });
   try {
     const task = await api.createTask(request, taskId);
-    // Correct the placeholder to the exact output aspect.
-    const aspect = task.expected.width / task.expected.height;
-    const current = get().items.find((i) => i.id === item.id) ?? item;
-    const h = Math.round(current.w / aspect);
-    if (Math.abs(h - current.h) > 1) patchEverywhere(item.id, { h, y: Math.round(current.y + (current.h - h) / 2) });
+    // Correct the placeholder to the exact output aspect when the result has a pixel size.
+    if (task.expected.width > 0 && task.expected.height > 0) {
+      const aspect = task.expected.width / task.expected.height;
+      const current = get().items.find((i) => i.id === item.id) ?? item;
+      const h = Math.round(current.w / aspect);
+      if (Math.abs(h - current.h) > 1) patchEverywhere(item.id, { h, y: Math.round(current.y + (current.h - h) / 2) });
+    }
     applyTask(task);
   } catch (err) {
     patchEverywhere(item.id, { error: (err as Error).message });
@@ -51,8 +54,9 @@ export async function launch({ request, kind, count = 1, size, inputs = [], near
   const rowW = size.w * count + GAP * (count - 1);
   const center = viewportCenter(viewport, screen.w, screen.h - 160);
   const anchor = near ?? inputs[0];
-  // A slot the user dragged out of one of the inputs wins over automatic placement.
-  const slot = pendingOutput && inputs.some((i) => i.id === pendingOutput.from) ? pendingOutput.at : null;
+  // A slot the user dragged out of an input wins over automatic placement; a source-less
+  // generator (opened from a workflow menu) uses its own anchor.
+  const slot = pendingOutput && (!pendingOutput.from || inputs.some((i) => i.id === pendingOutput.from)) ? pendingOutput.at : null;
   const start = slot
     ? { x: slot.x, y: slot.y - size.h / 2 }
     : anchor
@@ -79,7 +83,7 @@ export async function launch({ request, kind, count = 1, size, inputs = [], near
 
 /** Same request with a fresh seed, placed next to the item and linked to the same inputs. */
 export function regenerate(item: CanvasItem) {
-  if (!item.request || item.kind === 'text') return;
+  if (!item.request || item.kind === 'text' || item.kind === 'prompt') return;
   const { seed: _seed, ...request } = item.request;
   const { items } = get();
   const inputs = inputIds(item)
@@ -89,6 +93,18 @@ export function regenerate(item: CanvasItem) {
 }
 
 
+
+/**
+ * Redo a shot in place: same request and first frame, fresh seed, same item id.
+ * Used by "只重做这一段": the final cut's clip list still points at this id,
+ * so recompose picks up the new result without re-editing by hand.
+ */
+export function redoShot(item: CanvasItem) {
+  if (!item.request || item.kind !== 'video') return;
+  const { seed: _seed, ...request } = item.request;
+  patchEverywhere(item.id, { error: undefined, taskId: undefined });
+  void submit(item, request as TaskRequest);
+}
 
 export function retry(item: CanvasItem) {
   if (!item.request) return;
@@ -100,6 +116,22 @@ export async function cancel(item: CanvasItem) {
   if (!item.taskId) return removeItems([item.id]);
   try {
     applyTask(await api.cancelTask(item.taskId));
+  } catch (err) {
+    toast((err as Error).message, 'error');
+  }
+}
+
+/** Re-run the same edit from a final-cut item's stored clip list. */
+export async function recomposeItem(item: CanvasItem) {
+  if (!item.cutList?.length) {
+    toast(t('这个节点没有剪辑清单，不能重拼'), 'error');
+    return;
+  }
+  const { projectId } = get();
+  if (!projectId) return;
+  try {
+    const res = await api.recompose(projectId, item.id);
+    toast(t('重拼完成：{duration} 秒，{cues} 条字幕', { duration: res.duration.toFixed(1), cues: res.cues }), 'success');
   } catch (err) {
     toast((err as Error).message, 'error');
   }

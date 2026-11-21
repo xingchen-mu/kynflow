@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Settings as SettingsIcon, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { AgentStatus, Capabilities, PresetInfo } from '../../shared/types';
 import { api } from '../lib/api';
@@ -44,10 +44,9 @@ export function OnboardingModal() {
   const hasServer = Boolean(state.caps || state.agent);
 
   return (
-    <Modal title={<><Sparkles /> {t('欢迎使用 Infinode')}</>} onClose={close}>
+    <Modal title={<><img className="onboarding-logo" src="/brand/kynflow-icon.png" alt="" /> {t('欢迎使用 Kynflow')}</>} onClose={close}>
       <div className="onboarding-intro">
         <h2>{t('一张原生 ComfyUI 画布')}</h2>
-        <p>{t('节点保存创作过程，助手帮你完成下一步。先检查本机服务和模型连接，之后就可以开始。')}</p>
       </div>
       <section className="diagnostics-grid">
         <div className="diagnostic-card">

@@ -15,18 +15,19 @@ export interface Presence {
 }
 
 /** Tools whose results are new board items, which the page then brings into view. */
-const CREATES = new Set(['generate_image', 'generate_video', 'batch_generate_images', 'batch_generate_videos', 'run_workflow', 'write_note', 'assemble_video', 'capture_frame']);
+const CREATES = new Set(['generate_image', 'generate_video', 'batch_generate_images', 'batch_generate_videos', 'run_workflow', 'write_note', 'assemble_video', 'capture_frame', 'crop_image', 'mark_layout']);
 /** Codex gives a tool call 60 s by default: wait a bit less unless asked for longer. */
 const WAIT_DEFAULT = 50;
 /** A page that reported this recently still counts as what the user is looking at. */
 const PRESENCE_TTL = 6 * 3600_000;
 
-const INSTRUCTIONS = `Infinode is an infinite canvas on the user's own ComfyUI. Board items are images, videos or text notes; links show which items a result was made from.
+const INSTRUCTIONS = `Kynflow is an infinite canvas on the user's own ComfyUI. Board items are images, videos or text notes; links show which items a result was made from.
 - Start with get_context: the board the user has open and the items they selected ("this image", "these" mean those). Tools work on that board unless you pass board_id.
 - Generation is asynchronous: generate_* / batch_* / run_workflow return new item ids at once; use wait_for_items to get results (each wait is capped, call again if it times out).
 - One GPU runs everything in turn. get_context gives this server's measured speed for images and MiniMax H3 clips; plan with it rather than guessing. Ask the user before queueing several videos.
 - For a short drama or any film cut from several shots, read the short_drama guide with read_guide before starting and follow its steps; reread a section before each step. Its video section also gives the prompt format for a single first-frame video.
 - Before generating images with the qwen model, read the qwen_image guide once: without reference images it wants one long English paragraph describing the picture, with them an instruction that says what each image is for.
+- For the story itself, read one section of the drama_craft guide as needed: genres (beats and shooting for twelve genres), script, adaptation (turning the user's novel or script into shots without changing its events), styles.
 - New items are placed and linked on the board automatically; the user watches the board update live.
 - If the user switched on commercial-only mode, tools refuse research-only and non-commercial models and say what to use instead; list_workflows marks each template's license.
 - Tool descriptions are in Chinese, the language of the app; reply in the user's language.`;

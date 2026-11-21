@@ -9,6 +9,21 @@ import { launch } from './tasks';
 
 const get = useStore.getState;
 
+/**
+ * The prompt node driving the composer: a selected prompt node, or the one wired to a selected item.
+ */
+export function promptSource(items = get().items, selection = get().selection): CanvasItem | undefined {
+  const picked = selection
+    .map((id) => items.find((i) => i.id === id))
+    .filter((i): i is CanvasItem => Boolean(i));
+  const direct = picked.find((i) => i.kind === 'prompt');
+  if (direct) return direct;
+  for (const item of picked) {
+    const linked = item.promptId ? items.find((i) => i.id === item.promptId) : undefined;
+    if (linked?.kind === 'prompt') return linked;
+  }
+}
+
 /** Selected media the composer will use, given what the current model accepts. */
 export function composerReferences(): { refs: CanvasItem[]; videos: CanvasItem[]; ignored: number; needed: number } {
   const { composer } = get();
@@ -27,12 +42,15 @@ export function composerReferences(): { refs: CanvasItem[]; videos: CanvasItem[]
   }
   let limit: number;
   if (composer.mode === 'image') limit = composer.imageModel === 'qwen' ? 10 : 0;
-  else limit = composer.videoModel === 'minimax-ref' ? 9 : 2;
+  else if (composer.mode === 'video') limit = composer.videoModel === 'minimax-ref' ? 9 : 2;
+  else return { refs: [], videos: [], ignored: 0, needed: 0 };
   return { refs: images.slice(0, limit), videos: [], ignored: Math.max(0, images.length - limit), needed: 0 };
 }
 export async function generateFromComposer() {
   const { composer, prompt } = get();
-  const text = prompt.trim();
+  const promptNode = promptSource();
+  const text = (prompt || promptNode?.text || '').trim();
+  const prompts = promptNode ? [promptNode] : [];
   const wf = activeWorkflow();
   const { refs, videos } = composerReferences();
   if (wf) {
@@ -58,9 +76,14 @@ export async function generateFromComposer() {
       prompt: text,
       images: refs,
       videos,
-      aspect: composer.mode === 'image' ? composer.imageAspect : composer.videoAspect,
+      prompts,
+      aspect: composer.mode === 'image' ? composer.imageAspect : composer.mode === 'video' ? composer.videoAspect : 'auto',
       count: composer.mode === 'video' ? Math.min(2, composer.count) : composer.count,
     });
+    return;
+  }
+  if (composer.mode !== 'image' && composer.mode !== 'video') {
+    toast(t('这个输出类型需要先在模型列表里选择一个工作流'), 'info');
     return;
   }
   if (!text) {
@@ -83,7 +106,7 @@ export async function generateFromComposer() {
       kind: 'image',
       count: composer.count,
       size: displaySize(ratio, 1, IMAGE_LONG_SIDE),
-      inputs: refs,
+      inputs: [...refs, ...prompts],
     });
   } else {
     const model = composer.videoModel as VideoModel;
@@ -108,7 +131,7 @@ export async function generateFromComposer() {
       kind: 'video',
       count: Math.min(2, composer.count),
       size: displaySize(ratio, 1, VIDEO_LONG_SIDE),
-      inputs: refs,
+      inputs: [...refs, ...prompts],
     });
   }
 }

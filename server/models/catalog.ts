@@ -1,7 +1,7 @@
 import type { ModelDownload } from '../../shared/types.ts';
 import type { ModelSlot } from '../workflows/models.ts';
 
-// The model files Infinode knows how to download: every file the official templates list. The built-in tools
+// The model files Kynflow knows how to download: every file the official templates list. The built-in tools
 // use the same files, so their slots look their downloads up here instead of keeping a second list of links.
 
 /** Only formats that cannot run code when ComfyUI loads them (unlike pickled .ckpt / .pt). */

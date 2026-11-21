@@ -1,10 +1,14 @@
-import type { ImageQuality, VideoQuality } from '../../shared/types';
+import type { ImageQuality, MediaKind, VideoQuality } from '../../shared/types';
+import { isMediaKind } from '../../shared/media';
 
 export interface ComposerSettings {
-  mode: 'image' | 'video';
-  /** Built-in id ('qwen', 'zimage') or 'custom:<workflow id>'. */
+  /** The output kind of the current recipe; workflows decide this. */
+  mode: MediaKind;
+  /** Selected imported workflow or preset; empty means a built-in image/video model. */
+  workflowId: string;
+  /** Built-in id ('qwen', 'zimage') or 'custom:<workflow id>' for boards saved before workflowId existed. */
   imageModel: string;
-  /** Built-in id ('minimax', 'minimax-ref') or 'custom:<workflow id>'. */
+  /** Built-in id ('minimax', 'minimax-ref') or 'custom:<workflow id>' for boards saved before workflowId existed. */
   videoModel: string;
   imageAspect: string;
   videoAspect: string;
@@ -19,6 +23,7 @@ export interface ComposerSettings {
 const COMPOSER_KEY = 'infinode:composer';
 const defaultComposer: ComposerSettings = {
   mode: 'image',
+  workflowId: '',
   imageModel: 'qwen',
   videoModel: 'minimax',
   imageAspect: 'auto',
@@ -36,6 +41,9 @@ export function loadComposer(): ComposerSettings {
     // Unknown ids (e.g. a deleted workflow) fall back once the workflow list is loaded.
     if (typeof saved.imageModel !== 'string') saved.imageModel = defaultComposer.imageModel;
     if (typeof saved.videoModel !== 'string') saved.videoModel = defaultComposer.videoModel;
+    if (typeof saved.workflowId !== 'string') saved.workflowId = '';
+    if (!isMediaKind(saved.mode)) saved.mode = 'image';
+    if (saved.mode !== 'image' && saved.mode !== 'video' && !saved.workflowId) saved.mode = 'image';
     if (!saved.params || typeof saved.params !== 'object') saved.params = {};
     return saved;
   } catch {

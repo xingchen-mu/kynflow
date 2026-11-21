@@ -4,10 +4,18 @@ import { commit, select, toast, useStore } from '../store';
 import { api } from '../lib/api';
 import { GAP, boundsOf, displaySize, placeRow, viewportCenter } from '../../shared/geometry';
 import { t } from '../i18n';
-import { IMAGE_LONG_SIDE, VIDEO_LONG_SIDE } from '../canvas/items';
+import { CARD_SIZE } from '../../shared/media';
 import { ensureVisible } from '../canvas/view';
 
 const get = useStore.getState;
+
+/** File picker filter for everything the board can hold. */
+export const UPLOAD_ACCEPT = 'image/*,video/*,audio/*,.glb,.gltf,.obj,.ply,.txt,.md,.json,.csv';
+
+/** Whether a dropped or pasted file is something the board can hold. */
+export function acceptsFile(file: File): boolean {
+  return /^(image|video|audio)\//.test(file.type) || /\.(glb|gltf|obj|ply|txt|md|json|csv)$/i.test(file.name);
+}
 
 function videoSize(file: Blob): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
@@ -27,15 +35,19 @@ function videoSize(file: Blob): Promise<{ width: number; height: number }> {
 }
 
 function sizeFor(asset: AssetInfo) {
-  return displaySize(asset.width || 1, asset.height || 1, asset.kind === 'video' ? VIDEO_LONG_SIDE : IMAGE_LONG_SIDE);
+  if (asset.kind !== 'image' && asset.kind !== 'video') {
+    const card = CARD_SIZE[asset.kind];
+    return { w: card.width, h: card.height };
+  }
+  return displaySize(asset.width || 1, asset.height || 1, asset.kind === 'video' ? CARD_SIZE.video.width : CARD_SIZE.image.width);
 }
 
-/** Uploads files and drops them on the board (centered on `at`, or at the view center). */
-export async function addFiles(files: File[], at?: { x: number; y: number }) {
-  const media = files.filter((f) => /^(image|video)\//.test(f.type));
+/** Uploads files to the asset library without changing the board. */
+export async function uploadFiles(files: File[]): Promise<AssetInfo[]> {
+  const media = files.filter(acceptsFile);
   if (!media.length) {
-    if (files.length) toast(t('只支持图片和视频文件'), 'error');
-    return;
+    if (files.length) toast(t('只支持图片、视频、音频、3D 模型和文本文件'), 'error');
+    return [];
   }
   const assets: AssetInfo[] = [];
   for (const f of media) {
@@ -46,6 +58,12 @@ export async function addFiles(files: File[], at?: { x: number; y: number }) {
       toast(t('{name} 上传失败：{message}', { name: f.name, message: (err as Error).message }), 'error');
     }
   }
+  return assets;
+}
+
+/** Uploads files and drops them on the board (centered on `at`, or at the view center). */
+export async function addFiles(files: File[], at?: { x: number; y: number }) {
+  const assets = await uploadFiles(files);
   if (assets.length) addAssets(assets, at);
 }
 

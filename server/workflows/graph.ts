@@ -1,6 +1,6 @@
 // Minimal builder for ComfyUI API-format prompts.
 
-import type { ComfyApiNode } from '../../shared/types.ts';
+import type { ComfyApiNode, MediaKind } from '../../shared/types.ts';
 
 export type Ref = [string, number];
 
@@ -33,7 +33,7 @@ export interface BuiltWorkflow {
   graph: Record<string, ApiNode>;
   /** Nodes whose saved files are the task results. */
   outputNodes: string[];
-  expected: { kind: 'image' | 'video'; width: number; height: number };
+  expected: { kind: MediaKind; width: number; height: number };
   stages: Stage[];
 }
 

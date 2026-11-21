@@ -16,6 +16,8 @@ export interface AgentConfig {
   /** For a custom endpoint: context length in tokens (unset: 128k) and whether the model reasons. */
   contextWindow?: number;
   reasoning: boolean;
+  /** Finds memory by meaning; unset means keyword search only. */
+  embedding?: { model: string; baseUrl?: string; apiKey?: string };
 }
 
 /** Context lengths a custom endpoint may declare: the instructions and tools alone take about 8k tokens. */
@@ -53,11 +55,12 @@ export class SettingsStore {
       if (isLang(saved.language)) this.value.language = saved.language;
       if (typeof saved.agentModel === 'string' && saved.agentModel.trim()) this.value.agentModel = saved.agentModel.trim();
       if (typeof saved.agentBaseUrl === 'string' && saved.agentBaseUrl.trim()) this.value.agentBaseUrl = saved.agentBaseUrl.trim();
-      if (typeof saved.agentVision === 'boolean') this.value.agentVision = saved.agentVision;
       if (typeof saved.agentThinking === 'string' && saved.agentThinking.trim()) this.value.agentThinking = saved.agentThinking.trim();
       if (isContextWindow(saved.agentContextWindow)) this.value.agentContextWindow = saved.agentContextWindow;
       if (typeof saved.agentReasoning === 'boolean') this.value.agentReasoning = saved.agentReasoning;
       if (APPROVAL_MODES.includes(saved.agentApprovalMode as ApprovalMode)) this.value.agentApprovalMode = saved.agentApprovalMode;
+      if (typeof saved.agentEmbeddingModel === 'string' && saved.agentEmbeddingModel.trim()) this.value.agentEmbeddingModel = saved.agentEmbeddingModel.trim();
+      if (typeof saved.agentEmbeddingBaseUrl === 'string' && saved.agentEmbeddingBaseUrl.trim()) this.value.agentEmbeddingBaseUrl = saved.agentEmbeddingBaseUrl.trim();
       if (isModelSource(saved.modelSource)) this.value.modelSource = saved.modelSource;
       if (typeof saved.modelEndpoint === 'string' && saved.modelEndpoint.trim()) this.value.modelEndpoint = saved.modelEndpoint.trim();
       const raw = saved as Partial<Settings> & { agentApiKey?: unknown; hfToken?: unknown };
@@ -69,11 +72,12 @@ export class SettingsStore {
     // Surface the effective .env defaults in the settings UI while still allowing the user to override them.
     if (!this.value.agentModel && process.env.AGENT_MODEL?.trim()) this.value.agentModel = process.env.AGENT_MODEL.trim();
     if (!this.value.agentBaseUrl && process.env.AGENT_BASE_URL?.trim()) this.value.agentBaseUrl = process.env.AGENT_BASE_URL.trim();
-    if (this.value.agentVision === undefined && process.env.AGENT_VISION !== undefined) this.value.agentVision = process.env.AGENT_VISION === '1';
     if (!this.value.agentThinking && process.env.AGENT_THINKING?.trim()) this.value.agentThinking = process.env.AGENT_THINKING.trim();
     const envWindow = envContextWindow();
     if (this.value.agentContextWindow === undefined && envWindow) this.value.agentContextWindow = envWindow;
     if (this.value.agentReasoning === undefined && process.env.AGENT_REASONING !== undefined) this.value.agentReasoning = process.env.AGENT_REASONING === '1';
+    if (!this.value.agentEmbeddingModel && process.env.AGENT_EMBEDDING_MODEL?.trim()) this.value.agentEmbeddingModel = process.env.AGENT_EMBEDDING_MODEL.trim();
+    if (!this.value.agentEmbeddingBaseUrl && process.env.AGENT_EMBEDDING_BASE_URL?.trim()) this.value.agentEmbeddingBaseUrl = process.env.AGENT_EMBEDDING_BASE_URL.trim();
     if (this.value.language) setServerLang(this.value.language);
     this.updateAgentKeyStatus();
     this.updateHfTokenStatus();
@@ -124,18 +128,22 @@ export class SettingsStore {
     const model = this.value.agentModel?.trim() || process.env.AGENT_MODEL?.trim() || 'deepseek/deepseek-flash';
     const baseUrl = this.value.agentBaseUrl?.trim() || process.env.AGENT_BASE_URL?.trim() || undefined;
     const apiKey = this.agentApiKey || process.env.AGENT_API_KEY?.trim() || undefined;
-    const vision = this.value.agentVision ?? process.env.AGENT_VISION === '1';
     const thinking = this.value.agentThinking?.trim() || process.env.AGENT_THINKING?.trim() || 'low';
     const approvalMode = this.value.agentApprovalMode ?? 'risky';
     const contextWindow = this.value.agentContextWindow ?? envContextWindow();
     const reasoning = this.value.agentReasoning ?? process.env.AGENT_REASONING === '1';
-    return { model, baseUrl, apiKey, vision, thinking, approvalMode, contextWindow, reasoning };
+    const embeddingModel = this.value.agentEmbeddingModel?.trim() || process.env.AGENT_EMBEDDING_MODEL?.trim() || undefined;
+    const embeddingBaseUrl = this.value.agentEmbeddingBaseUrl?.trim() || process.env.AGENT_EMBEDDING_BASE_URL?.trim() || undefined;
+    const embedding = embeddingModel
+      ? { model: embeddingModel, ...(embeddingBaseUrl || baseUrl ? { baseUrl: embeddingBaseUrl ?? baseUrl } : {}), ...(apiKey ? { apiKey } : {}) }
+      : undefined;
+    // Every model the app targets takes images, so there is no switch for it.
+    return { model, baseUrl, apiKey, vision: true, thinking, approvalMode, contextWindow, reasoning, ...(embedding ? { embedding } : {}) };
   }
 
   async saveAgentConfig(patch: {
     model?: string;
     baseUrl?: string;
-    vision?: boolean;
     thinking?: string;
     approvalMode?: ApprovalMode;
     /** null: back to the default. */
@@ -143,6 +151,9 @@ export class SettingsStore {
     reasoning?: boolean;
     apiKey?: string;
     clearApiKey?: boolean;
+    /** Empty clears it: search falls back to keywords. */
+    embeddingModel?: string;
+    embeddingBaseUrl?: string;
   }) {
     if (patch.model !== undefined) {
       const model = patch.model.trim();
@@ -154,7 +165,6 @@ export class SettingsStore {
       if (baseUrl) this.value.agentBaseUrl = baseUrl;
       else delete this.value.agentBaseUrl;
     }
-    if (patch.vision !== undefined) this.value.agentVision = patch.vision;
     if (patch.thinking !== undefined) {
       const thinking = patch.thinking.trim();
       if (thinking) this.value.agentThinking = thinking;
@@ -164,6 +174,16 @@ export class SettingsStore {
     if (patch.contextWindow === null) delete this.value.agentContextWindow;
     else if (patch.contextWindow !== undefined) this.value.agentContextWindow = patch.contextWindow;
     if (patch.reasoning !== undefined) this.value.agentReasoning = patch.reasoning;
+    if (patch.embeddingModel !== undefined) {
+      const model = patch.embeddingModel.trim();
+      if (model) this.value.agentEmbeddingModel = model;
+      else delete this.value.agentEmbeddingModel;
+    }
+    if (patch.embeddingBaseUrl !== undefined) {
+      const baseUrl = patch.embeddingBaseUrl.trim();
+      if (baseUrl) this.value.agentEmbeddingBaseUrl = baseUrl;
+      else delete this.value.agentEmbeddingBaseUrl;
+    }
     if (patch.clearApiKey) this.agentApiKey = undefined;
     if (patch.apiKey?.trim()) this.agentApiKey = patch.apiKey.trim();
     this.updateAgentKeyStatus();

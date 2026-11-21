@@ -1,17 +1,17 @@
 import { Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { CanvasItem } from '../../shared/types';
-import { addFiles } from '../assets/actions';
-import { ensureVisible } from './view';
+import type { AssetInfo, CanvasItem } from '../../shared/types';
+import { addAssets, addFiles } from '../assets/actions';
 import { THUMB_PX } from '../../shared/media';
-import { GAP, type Rect, boundsOf, intersects, placeRow, toScreen, toWorld, visibleRect } from '../../shared/geometry';
-import { beginGesture, endGesture, select, setComposer, setViewport, updateItems, useStore, zoomAt } from '../store';
+import { type Rect, boundsOf, intersects, toScreen, toWorld, visibleRect } from '../../shared/geometry';
+import { beginGesture, endGesture, patchItem, select, setViewport, updateItems, useStore, zoomAt } from '../store';
 import { ContextMenu, type MenuState } from './ContextMenu';
 import { MaskCanvas } from '../editors/MaskEditor';
 import { OutpaintFrame } from '../editors/OutpaintEditor';
 import { ItemToolbar } from './ItemToolbar';
 import { ItemView } from './ItemView';
 import { Links, slotRect } from './Links';
+import { openGenerator } from '../generation/openGenerator';
 import { t } from '../i18n';
 
 type Handle = 'nw' | 'ne' | 'sw' | 'se';
@@ -30,27 +30,6 @@ type Drag =
 /** Topmost item under a board point. */
 function itemAt(items: CanvasItem[], p: { x: number; y: number }) {
   return [...items].reverse().find((i) => p.x >= i.x && p.x <= i.x + i.w && p.y >= i.y && p.y <= i.y + i.h);
-}
-
-/**
- * Opens an output slot linked to `from` at `at` (or beside it), selects the source so the
- * composer uses it, and focuses the prompt.
- */
-function openSlot(from: CanvasItem, at?: { x: number; y: number }) {
-  const st = useStore.getState();
-  // Z-Image cannot take a reference image.
-  if (st.composer.mode === 'image' && st.composer.imageModel === 'zimage') setComposer({ imageModel: 'qwen' });
-  select([from.id]);
-  let point = at;
-  if (!point) {
-    const probe = slotRect(from, { x: 0, y: 0 });
-    const others = st.items.filter((i) => i.id !== from.id);
-    const [pos] = placeRow(others, { x: from.x + from.w + GAP * 3, y: from.y + (from.h - probe.h) / 2 }, [probe]);
-    point = { x: pos.x, y: pos.y + probe.h / 2 };
-  }
-  useStore.setState({ pendingOutput: { from: from.id, at: point } });
-  ensureVisible(boundsOf([from, slotRect(from, point)])!);
-  requestAnimationFrame(() => document.getElementById('composer-input')?.focus());
 }
 
 function SelectionLayer({ marquee, showHandles }: { marquee: Rect | null; showHandles: boolean }) {
@@ -76,8 +55,12 @@ function SelectionLayer({ marquee, showHandles }: { marquee: Rect | null; showHa
               {single.asset.width} × {single.asset.height}
             </div>
           )}
-          {single?.asset && single.kind === 'image' && showHandles && (
-            <div className="port" data-port={single.id} title={t('拖出一条线，在线的另一端生成新内容')}>
+          {showHandles && single && ((single.asset && single.kind === 'image') || single.kind === 'prompt') && (
+            <div
+              className="port"
+              data-port={single.id}
+              title={single.kind === 'prompt' ? t('拖到图片或视频上作为提示词，或松手生成新内容') : t('拖出一条线，在线的另一端生成新内容')}
+            >
               <Plus />
             </div>
           )}
@@ -173,7 +156,7 @@ export function Canvas() {
         const dir = { x: handle.includes('e') ? 1 : -1, y: handle.includes('s') ? 1 : -1 };
         // Notes are boxes of text at a fixed font size, so they take any shape; a picture would stretch.
         // A note already below the minimum can still grow, just not shrink further.
-        const free = selected.every((i) => i.kind === 'text')
+        const free = selected.every((i) => i.kind === 'text' || i.kind === 'prompt')
           ? {
               x: Math.min(1, NOTE_MIN.w / Math.min(...selected.map((i) => i.w))),
               y: Math.min(1, NOTE_MIN.h / Math.min(...selected.map((i) => i.h))),
@@ -300,10 +283,17 @@ export function Canvas() {
       const st = useStore.getState();
       const from = st.items.find((i) => i.id === d.from);
       if (!from) return;
-      if (!d.moved) return openSlot(from); // plain click on the port: slot beside the image
+      if (!d.moved) return openGenerator(from); // plain click on the port: open the generator beside the item
       const { sx, sy } = local(e);
       const p = toWorld(st.viewport, sx, sy);
-      if (itemAt(st.items, p)) return; // dropped onto an item: nothing to connect to
+      const target = itemAt(st.items, p);
+      // A prompt node dropped on a picture/clip becomes that item's prompt.
+      if (from.kind === 'prompt' && target) {
+        if (target.id === from.id || target.kind === 'prompt' || target.kind === 'text') return;
+        patchItem(target.id, { promptId: target.promptId === from.id ? undefined : from.id }, true);
+        return;
+      }
+      if (target) return; // dropped onto an item: nothing to connect to
       // Put the slot's edge that faces the source under the pointer.
       const { w, h } = slotRect(from, p);
       const dx = (p.x - (from.x + from.w / 2)) / (from.w / 2 + w / 2);
@@ -317,7 +307,7 @@ export function Canvas() {
         left = p.x - w / 2;
         top = dy >= 0 ? p.y : p.y - h;
       }
-      openSlot(from, { x: left, y: top + h / 2 });
+      openGenerator(from, { x: left, y: top + h / 2 });
     }
   };
 
@@ -330,7 +320,7 @@ export function Canvas() {
     const p = toWorld(st.viewport, sx, sy);
     const item = itemAt(st.items, p);
     if (item?.asset) useStore.setState({ lightboxId: item.id });
-    else if (item?.kind === 'text') {
+    else if (item?.kind === 'text' || item?.kind === 'prompt') {
       select([item.id]);
       useStore.setState({ noteEditing: item.id });
     }
@@ -348,10 +338,20 @@ export function Canvas() {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDropping(false);
+    const { sx, sy } = local(e);
+    const at = toWorld(useStore.getState().viewport, sx, sy);
+    const raw = e.dataTransfer.getData('application/x-infinode-asset');
+    if (raw) {
+      try {
+        addAssets([JSON.parse(raw) as AssetInfo], at);
+      } catch {
+        /* not ours */
+      }
+      return;
+    }
     const files = [...e.dataTransfer.files];
     if (!files.length) return;
-    const { sx, sy } = local(e);
-    void addFiles(files, toWorld(useStore.getState().viewport, sx, sy));
+    void addFiles(files, at);
   };
 
   let step = 24 * viewport.zoom;
@@ -405,7 +405,7 @@ export function Canvas() {
       {items.length === 0 && !editing && (
         <div className="empty-hint">
           <div className="empty-title">{t('从一句话开始创作')}</div>
-          <div className="empty-sub">{t('在下方输入提示词生成图片或视频，或把图片拖进画布')}</div>
+          <div className="empty-sub">{t('从节点右侧拖出连线，在终点生成图片、视频、音频、3D 或文本；也可以把文件拖进画布')}</div>
         </div>
       )}
     </div>

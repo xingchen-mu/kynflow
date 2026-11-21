@@ -213,6 +213,18 @@ export async function openProject(id: string) {
     const p = await api.project(id);
     const { screen, tasks } = useStore.getState();
     const fresh = p.viewport.x === 0 && p.viewport.y === 0 && p.viewport.zoom === 1;
+    // A board saved at 8% is unreadable; restore at least 25% around the same spot.
+    const saved = p.viewport;
+    const baseZoom = saved.zoom || 1;
+    const zoom = Math.max(baseZoom, 0.25);
+    const restored =
+      zoom === saved.zoom
+        ? saved
+        : {
+            zoom,
+            x: screen.w / 2 - ((screen.w / 2 - saved.x) / baseZoom) * zoom,
+            y: (screen.h - 160) / 2 - (((screen.h - 160) / 2 - saved.y) / baseZoom) * zoom,
+          };
     useStore.setState({
       projectId: p.id,
       projectName: p.name,
@@ -221,7 +233,7 @@ export async function openProject(id: string) {
         p.items.map((i) => (i.kind !== 'text' && !i.asset && !i.taskId && !i.error ? { ...i, error: msg('提交未完成，请重试') } : i)),
         tasks,
       ),
-      viewport: fresh ? { x: screen.w / 2, y: (screen.h - 160) / 2, zoom: 1 } : p.viewport,
+      viewport: fresh ? { x: screen.w / 2, y: (screen.h - 160) / 2, zoom: 1 } : restored,
       selection: [],
       past: [],
       future: [],

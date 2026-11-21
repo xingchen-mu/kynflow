@@ -2,6 +2,7 @@ import { type ComposerSettings, loadComposer, saveComposer } from './generation/
 import { create } from 'zustand';
 import type { Capabilities, CanvasItem, CustomWorkflow, ModelDownloadJob, PresetInfo, Task, Viewport, WorkflowDraft } from '../shared/types';
 import { msg } from '../shared/i18n';
+import { CARD_SIZE } from '../shared/media';
 
 export type Tool = 'select' | 'hand';
 export interface EditMode {
@@ -16,10 +17,12 @@ export type Modal =
   | { type: 'settings' }
   | { type: 'workflows' }
   | { type: 'presets' }
-  | { type: 'assets' }
   | { type: 'details'; itemId: string }
   | { type: 'snapshots' }
   | { type: 'onboarding' }
+  | { type: 'palette' }
+  /** Picking through generated images and videos: pass, fail, or show one on the canvas. */
+  | { type: 'review' }
   | { type: 'editor'; draft: WorkflowDraft; id?: string }
   /** Downloading model files: `names` (none = just the list of downloads), for `title`; `back` reopens where it came from. */
   | { type: 'downloads'; names: string[]; title?: string; back?: Modal };
@@ -52,8 +55,8 @@ export interface State {
   screen: { w: number; h: number };
   /** Draw lines from inputs to the results made from them. */
   showLinks: boolean;
-  /** Output slot dragged out of an item: the next generation using it lands here. */
-  pendingOutput: { from: string; at: { x: number; y: number } } | null;
+  /** Output slot dragged out of an item (or a source-less generator): the next generation lands here. */
+  pendingOutput: { from?: string; at: { x: number; y: number } } | null;
   workflows: CustomWorkflow[];
   presets: PresetInfo[];
   /** Model downloads by id (this session's, from the server). */
@@ -122,8 +125,9 @@ export function resolveItems(items: CanvasItem[], tasks: Record<string, Task>): 
       const asset = task.results[it.resultIndex ?? 0] ?? task.results[0];
       changed = true;
       if (!asset) return { ...it, taskId: undefined, error: msg('没有返回结果') };
-      const aspect = asset.width / asset.height;
-      const h = Math.abs(it.w / it.h - aspect) > 0.01 ? Math.round(it.w / aspect) : it.h;
+      const visual = asset.width > 0 && asset.height > 0;
+      const aspect = visual ? asset.width / asset.height : 1;
+      const h = visual && Math.abs(it.w / it.h - aspect) > 0.01 ? Math.round(it.w / aspect) : it.h;
       return { ...it, kind: asset.kind, taskId: undefined, error: undefined, asset, h, y: it.y + (it.h - h) / 2 };
     }
     if ((task.status === 'error' || task.status === 'cancelled') && !it.error) {
@@ -203,12 +207,22 @@ export function select(ids: string[], mode: 'replace' | 'add' | 'toggle' = 'repl
   }
   if (next.length === current.length && next.every((id, i) => id === current[i])) return;
   const { pendingOutput } = get();
-  set({ selection: next, ...(pendingOutput && !next.includes(pendingOutput.from) ? { pendingOutput: null } : {}) });
+  set({ selection: next, ...(pendingOutput?.from && !next.includes(pendingOutput.from) ? { pendingOutput: null } : {}) });
 }
 
 export function removeItems(ids: string[]) {
   const drop = new Set(ids);
-  updateItems((items) => items.filter((it) => !drop.has(it.id)));
+  updateItems((items) =>
+    items
+      .filter((it) => !drop.has(it.id))
+      .map((it) => {
+        const prompt = it.promptId && drop.has(it.promptId);
+        const cut = it.inputs?.some((id) => drop.has(id));
+        if (!prompt && !cut) return it;
+        const inputs = it.inputs?.filter((id) => !drop.has(id));
+        return { ...it, inputs: inputs?.length ? inputs : undefined, promptId: prompt ? undefined : it.promptId };
+      }),
+  );
   set({ selection: get().selection.filter((id) => !drop.has(id)) });
   const { editing, lightboxId } = get();
   if (editing && drop.has(editing.itemId)) set({ editing: null });
@@ -228,8 +242,9 @@ export function applyTask(task: Task) {
       let x = anchor.x + anchor.w + 24;
       task.results.forEach((asset, index) => {
         if (used.has(index)) return;
-        const w = anchor.w;
-        const h = Math.round(w * (asset.height / asset.width || 1));
+        const visual = asset.width > 0 && asset.height > 0;
+        const w = visual ? anchor.w : CARD_SIZE[asset.kind].width;
+        const h = visual ? Math.round(w * (asset.height / asset.width || 1)) : CARD_SIZE[asset.kind].height;
         extra.push({ ...anchor, id: `${anchor.id}-${index}`, kind: asset.kind, x, y: anchor.y, w, h, resultIndex: index, createdAt: Date.now() });
         x += w + 24;
       });

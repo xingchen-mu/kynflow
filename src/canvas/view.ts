@@ -3,9 +3,9 @@ import { type Rect, boundsOf, fitViewport, toScreen } from '../../shared/geometr
 
 const get = useStore.getState;
 
-/** Board width left of the agent panel, when it is open. */
+/** The canvas already excludes the side panels, so its width is what the view can use. */
 function viewWidth() {
-  return get().screen.w - (document.body.classList.contains('agent-open') ? 392 : 0);
+  return get().screen.w;
 }
 
 /** Pans (and zooms out if needed) so `r` is on screen. */

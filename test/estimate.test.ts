@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Task, TaskRequest } from '../shared/types.ts';
-import { imageEstimate, roughly, speedNote, videoEstimate } from '../server/agent/estimate.ts';
+import { customEstimate, imageEstimate, roughly, speedNote, videoEstimate } from '../server/agent/estimate.ts';
 
 let clock = 0;
 /** A finished run that started after the previous one and took `seconds`. */
@@ -41,4 +41,21 @@ test('the speed line the assistant plans with comes from this server\'s runs', (
   const note = speedNote([run(qwen, 38), run(qwen, 42), run(sd(5), 700), run(sd(5), 150), run(sd(5), 160)]);
   assert.match(note, /^这台服务器的速度（按以往任务实测）：qwen 出一张 1k 图约 40 秒；MiniMax H3 一段 5 秒的视频，480p 约 3 分钟、/);
   assert.ok(!note.includes('加载模型'), note);
+});
+
+test('custom workflow estimates use only the latest finished runs of that exact workflow', () => {
+  const custom = (workflow: string): TaskRequest => ({ op: 'custom', workflow, prompt: 'x' });
+  const history = [
+    run(custom('background-edit'), 30),
+    run(custom('other-workflow'), 500),
+    run(qwen, 5),
+    run(custom('background-edit'), 50),
+    run(custom('background-edit'), 40),
+  ];
+  assert.deepEqual(customEstimate(history, 'background-edit'), { seconds: 40, samples: 3 });
+  assert.deepEqual(customEstimate(history, 'other-workflow'), { seconds: 500, samples: 1 });
+  assert.equal(customEstimate(history, 'never-run'), undefined);
+
+  const latest = Array.from({ length: 21 }, (_, i) => run(custom('latest'), i + 1));
+  assert.deepEqual(customEstimate(latest, 'latest'), { seconds: 12, samples: 20 });
 });

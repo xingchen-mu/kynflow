@@ -1,6 +1,8 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { CustomWorkflow, ModelDownload } from '../../shared/types.ts';
+import { isMediaKind } from '../../shared/media.ts';
+import { describeCapability } from './capability.ts';
 import { msg } from '../../shared/i18n.ts';
 
 export interface Preset extends CustomWorkflow {
@@ -28,14 +30,19 @@ export class PresetStore {
       try {
         const p = JSON.parse(await readFile(join(this.dir, name), 'utf8'));
         if (p.format !== 'infinode/preset' || !p.graph) continue;
+        const kind = isMediaKind(p.kind) ? p.kind : 'image';
+        const inputs = p.inputs ?? [];
+        const outputs = p.outputs ?? [];
         const preset: Preset = {
           id: `tpl_${p.id}`,
           name: p.name,
           description: p.description,
-          kind: p.kind === 'video' ? 'video' : 'image',
+          kind,
           graph: p.graph,
-          inputs: p.inputs ?? [],
-          outputs: p.outputs ?? [],
+          inputs,
+          outputs,
+          // Bundled templates have no /object_info at load time, so this is 'degraded'.
+          capability: describeCapability({ kind, inputs, outputs, graph: p.graph }),
           createdAt: 0,
           updatedAt: 0,
           preset: true,
