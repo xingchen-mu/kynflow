@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { build } from 'vite';
 
 const OUT = 'dist-demo';
-const base = process.env.PUBLIC_BASE ?? '/infinode/';
+const base = process.env.PUBLIC_BASE ?? '/kynflow/';
 
 process.env.VITE_DEMO = '1';
 process.env.VITE_BASE = base;

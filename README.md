@@ -44,6 +44,11 @@ Kynflow 只做画布，不包含、也不分发任何模型。用哪个模型、
 - **接入 Claude Code / Codex**：内置 MCP 服务，外部 agent 能用和画布助手同一套工具操作画布，你在页面上实时看到结果
 - **文本节点**：剧本、分镜表、备注直接放在画布上，双击编辑
 - **中英文界面**：默认跟随浏览器语言，可在设置里切换；服务端的提示和画布助手的回复也跟着变
+- **命令面板（⌘K）**：一个地方搜动作、资产、画布节点和工作流：适应画布、回到 100%、添加节点、打开资产库 / 助手 / 模板 / 设置，以及「爆款内容复刻」这类多步动作，都能直接调起
+- **资产停靠栏（⌘B）**：画布左侧常驻的资产栏，按图片 / 视频 / 音频 / 3D / 文本筛选和搜索，拖到画布上就能用
+- **系列**：把同一条故事的多个画布归到一个系列，系列里的画布共享设定、人物和记忆，画布助手在同一系列里保持一致
+- **审阅**：画布上每张图、每段视频配一张卡片，助手的检查结果写在旁边；你标通过或打回（主体不一致、构图错、主体过小、穿模 / 粘连、动作没做出来、文字错……），结果写回画布，下一条消息助手就看得到
+- **静态演示**：`npm run build:demo` 生成不连服务、不占 GPU 的真实界面演示，预载一张画布，可部署到 GitHub Pages 让人直接体验
 
 <table>
 <tr>
@@ -74,8 +79,8 @@ Kynflow 只做画布，不包含、也不分发任何模型。用哪个模型、
 - 可选：[ffmpeg](https://ffmpeg.org/)，画布助手剪辑成片、查看视频画面时要用（macOS：`brew install ffmpeg`）
 
 ```bash
-git clone <本仓库地址> infinode
-cd infinode
+git clone https://github.com/xingchen-mu/kynflow
+cd kynflow
 npm install
 npm run dev
 ```
@@ -103,7 +108,7 @@ npm run desktop:dist
 
 ### 产品网站
 
-仓库中的 `site/` 是产品官网和交互演示，推送到 `main` 后会由 GitHub Actions 部署到 GitHub Pages。首次使用时，在仓库的 **Settings → Pages** 中将发布来源设为 **GitHub Actions**；本地预览可运行：
+仓库中的 `site/` 是产品官网和交互演示，推送到 `main` 后会由 GitHub Actions 部署到 GitHub Pages，线上地址是 <https://xingchen-mu.github.io/kynflow/>。首次使用时，在仓库的 **Settings → Pages** 中将发布来源设为 **GitHub Actions**；本地预览可运行：
 
 ```bash
 npm run site:build
@@ -132,6 +137,8 @@ Kynflow 的后端只监听本机（`127.0.0.1:8787`）。想让局域网里的�
 | 搜索节点 | 左侧放大镜，搜索节点名称、提示词或文本，点击结果直接定位 |
 | 预览 | 双击图片或视频（视频带声音） |
 | 连线 | 悬停或选中图片高亮它的连线；`L` 显示 / 隐藏全部连线 |
+| 命令面板 | `⌘K`，搜索动作、资产、节点和工作流 |
+| 资产停靠栏 | `⌘B` 展开 / 收起左侧资产栏，拖拽资产到画布 |
 | 其他 | `⌘Z` 撤销、`⌘D` 复制一份、`Delete` 删除、`⇧1` 显示全部、`/` 聚焦输入框 |
 | 画布助手 | 右上角「助手」，用一句话说要做什么；发送时会带上画布上选中的节点 |
 | 节点溯源 | 选中节点后右键「节点信息」，查看输入链路、生成参数、请求 JSON，并复制 ComfyUI 图谱 |
@@ -337,12 +344,13 @@ Kynflow 是社区项目，与 Comfy Org 没有关联。ComfyUI 是 Comfy Org 的
 - Drag a line out of an image to place the next generation exactly where you want it
 - Canvas assistant: a chat panel that reads the board, looks at images, generates and runs your workflows, on DeepSeek, any other model [pi-ai](https://github.com/earendil-works/pi) supports, or any OpenAI-compatible endpoint (set the key in `.env`). It can take a short drama from a one-line idea to a cut: script and shot list as text notes, character and scene sheets, keyframes, one video per shot (after you approve the GPU time), then an edit with dialogue levelled to one loudness and subtitles burnt in (needs ffmpeg)
 - Text notes on the board for scripts, shot lists and comments
+- Command palette (⌘K): search actions, assets, board nodes and workflows in one place; asset dock (⌘B); series that group the boards of one story and share settings, characters and memory; a review surface to pass or fail each generated image or video next to the assistant's check, written back to the board for the next message
 - English and Chinese interface: follows your browser's language, switchable in Settings; server messages and the assistant's replies follow it
 - A commercial-only switch in Settings turns off research-only and non-commercial models; every built-in tool and template is labeled with its license
 - Built-in MCP server at `http://127.0.0.1:8787/mcp` (this machine only): Claude Code (`claude mcp add --transport http infinode http://127.0.0.1:8787/mcp`), Codex (`codex mcp add infinode --url http://127.0.0.1:8787/mcp`) and other agents get the same canvas tools as the assistant, and know which board and items you have selected in the page
 
 ```bash
-git clone <this repository> infinode && cd infinode
+git clone https://github.com/xingchen-mu/kynflow && cd kynflow
 npm install
 npm run dev   # open http://localhost:5173, then set your ComfyUI address in Settings
 ```
@@ -358,7 +366,7 @@ The desktop app starts the local Kynflow server itself and keeps its data in the
 
 Prebuilt installers are attached to the [latest GitHub Release](../../releases/latest) for macOS, Windows and Linux. Pushing a `v*` tag builds and uploads the desktop packages automatically; an existing tag can also be selected from the workflow to backfill its assets.
 
-**Website:** [infinode online demo](https://xingchen-mu.github.io/infinode/) is a static product page with an interactive canvas walkthrough. It does not use a GPU; real generation still runs through your own ComfyUI in the desktop or self-hosted app.
+**Website:** [Kynflow online demo](https://xingchen-mu.github.io/kynflow/) is a static product page with an interactive canvas walkthrough. It does not use a GPU; real generation still runs through your own ComfyUI in the desktop or self-hosted app.
 
 **License:** [MIT](LICENSE), free for personal and commercial use.
 
