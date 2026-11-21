@@ -48,6 +48,26 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
+      - name: Wait for the Pages artifact to be queryable
+        if: steps.pages.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # upload-pages-artifact finishes before its metadata is visible to the
+          # deploy step's API call; poll until it shows up to avoid a spurious
+          # "No artifacts named github-pages" failure.
+          for i in $(seq 1 30); do
+            count=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+              --jq '.artifacts | map(select(.name == "github-pages")) | length')
+            if [ "$count" -gt 0 ]; then
+              echo "github-pages artifact is visible (count=$count)"
+              exit 0
+            fi
+            echo "artifact not yet queryable, waiting ($i/30)..."
+            sleep 5
+          done
+          echo "::error::github-pages artifact did not become queryable in time"
+          exit 1
       - name: Deploy to GitHub Pages
         if: steps.pages.outputs.enabled == 'true'
         id: deployment
