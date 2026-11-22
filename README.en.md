@@ -23,11 +23,10 @@ AI can drive it too. The **canvas assistant** in the top right reads the board, 
 
 - **Infinite canvas**: pan, zoom, marquee select, drag, undo/redo, paste images, autosave, multiple boards, and it stays smooth with many nodes
 - **Links are the workflow**: results connect back to their reference image, first frame or source; drag a line out of an image to generate the next step at the drop point
-- **Built-in tools**: text-to-image, multi-reference editing, inpaint, erase, outpaint, background removal, SeedVR2 upscaling, image / text / first-last-frame / multi-reference video with native audio
 - **25 official templates**: ready-made tools; each one reports which models are missing, where to download them and which folder they belong in, with one-click download
 - **Import your own workflow**: drop in ComfyUI's **Export (API)** JSON; prompts, image inputs, seed and size are detected automatically
 - **Canvas assistant**: reads the board, looks at images, generates images and video, runs your workflows, and links results the same way; it can take a short drama from script → shot list → character sheets → keyframes → video → final cut
-- **Command palette (⌘K)**, **asset dock (⌘B)**, **series** (boards of one story share settings and memory) and **review** (pass or fail each result)
+- **Command palette (⌘K)**, **asset dock (⌘B)**, **series** (boards of one story share settings and memory) and **result review** (pass or fail each result with a reason; the verdict is written back to the board, so the assistant sees it in its next message)
 - **Chinese and English interface**: follows your browser's language, switchable in Settings
 
 ## Quick start
@@ -64,7 +63,7 @@ The backend listens on this machine only. To share it on the LAN, set `HOST=0.0.
 
 ## Canvas assistant
 
-Open the **assistant** panel in the top right and set the model in **Settings → Assistant model** (model ID, OpenAI-compatible endpoint, API key). You can also use `.env` and restart:
+Open the **assistant** panel in the top right and fill in the endpoint, API key and model under **Settings → Agent**. You can also use `.env` and restart:
 
 ```bash
 DEEPSEEK_API_KEY=sk-...              # default deepseek/deepseek-flash, vision capable
