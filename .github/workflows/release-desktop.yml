@@ -88,7 +88,7 @@ jobs:
       - name: Build desktop package
         run: npm run desktop:dist -- --publish never --config.directories.output=release ${{ matrix.args }}
       - name: Upload desktop artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.name }}
           path: release/*
