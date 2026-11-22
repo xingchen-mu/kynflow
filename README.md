@@ -101,4 +101,16 @@ Kynflow 本身是 [MIT](LICENSE)，个人和公司都可自由使用，包括商
 - **生产部署？** `npm run build && npm start`，单端口，默认 `http://127.0.0.1:8787`
 - **官网 / 在线演示？** <https://xingchen-mu.github.io/kynflow/>（静态演示，不占 GPU）
 
-欢迎参与贡献，见 [CONTRIBUTING.md](CONTRIBUTING.md)。模板来自 ComfyUI 官方模板（MIT），见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。Kynflow 是社区项目，与 Comfy Org 没有关联；ComfyUI 是 Comfy Org 的商标。
+## 致谢
+
+Kynflow 建立在这些开源项目之上：
+
+- **[ComfyUI](https://github.com/comfyanonymous/ComfyUI)** — 全部生图、改图、生视频能力都由它完成
+- **[ComfyUI workflow templates](https://github.com/Comfy-Org/workflow_templates)** — `presets/` 里的 25 个模板转自官方模板（MIT）
+- **[Toonflow](https://github.com/HBAI-Ltd/Toonflow-app)** — 短剧创作方法与连续性规则参考了它的知识库（MIT）
+- **[pi](https://github.com/earendil-works/pi)** — 画布助手基于 `pi-agent-core` 和 `pi-ai`
+- **[React](https://react.dev)**、**[Vite](https://vite.dev)**、**[Hono](https://hono.dev)**、**[Zustand](https://zustand.docs.pmnd.rs)**、**[Electron](https://www.electronjs.org)** — 界面、构建、服务端与桌面端
+
+完整的第三方组件与许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+欢迎参与贡献，见 [CONTRIBUTING.md](CONTRIBUTING.md)。Kynflow 是社区项目，与 Comfy Org 没有关联；ComfyUI 是 Comfy Org 的商标。

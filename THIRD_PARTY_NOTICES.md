@@ -64,11 +64,20 @@ SOFTWARE.
 
 ## npm dependencies
 
-Installed by `npm install`, not included in this repository, each under its own license:
+Installed by `npm install`, not included in this repository; the desktop packages bundle them, each
+under its own license:
 React, React DOM, Zustand, Hono, @hono/node-server, nanoid, image-size, @earendil-works/pi-ai and
 @earendil-works/pi-agent-core ([pi](https://github.com/earendil-works/pi), used for the canvas assistant),
 @modelcontextprotocol/sdk (MIT);
 lucide-react (ISC); sharp (Apache-2.0; its prebuilt libvips binaries are LGPL-3.0-or-later).
+
+Desktop builds bundle Electron (MIT); its Chromium components ship under their own licenses, included
+in the packaged app as `LICENSES.chromium.html`.
+
+Build and development tools, not distributed with the app: Vite (MIT), tsx (MIT),
+TypeScript (Apache-2.0), electron-builder (MIT), Playwright (Apache-2.0).
+
+Transitive dependencies are installed by npm, and each package carries its own license file.
 
 The canvas assistant calls `ffmpeg` / `ffprobe` from your system for editing and video frames, if installed;
 FFmpeg is not included.
