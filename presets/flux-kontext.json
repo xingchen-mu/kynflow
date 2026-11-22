@@ -1,5 +1,5 @@
 {
- "format": "infinode/preset",
+ "format": "kynflow/preset",
  "version": 1,
  "id": "flux-kontext",
  "template": "flux_kontext_dev_basic",

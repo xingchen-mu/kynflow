@@ -100,8 +100,7 @@ function customTitle(node: ComfyApiNode, info?: ObjectInfo): string | undefined 
 export function parseWorkflowJson(json: unknown): { graph: ComfyApiGraph; saved?: Partial<CustomWorkflow> } {
   if (!json || typeof json !== 'object') throw new WorkflowFormatError(t('不是有效的 JSON 文件'));
   const obj = json as Record<string, unknown>;
-  // comfy-canva/workflow: files exported before the project was renamed.
-  if ((obj.format === 'infinode/workflow' || obj.format === 'comfy-canva/workflow') && obj.graph && typeof obj.graph === 'object') {
+  if (obj.format === 'kynflow/workflow' && obj.graph && typeof obj.graph === 'object') {
     const { format: _f, version: _v, ...rest } = obj;
     return { graph: obj.graph as ComfyApiGraph, saved: rest as Partial<CustomWorkflow> };
   }

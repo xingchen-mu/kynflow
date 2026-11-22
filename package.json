@@ -5,6 +5,14 @@
   "main": "desktop/main.mjs",
   "desktopName": "Kynflow",
   "description": "Kynflow: an agent-driven infinite canvas for ComfyUI. Generate, edit and animate images on a board, with every result linked to its inputs.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xingchen-mu/kynflow.git"
+  },
+  "homepage": "https://xingchen-mu.github.io/kynflow/",
+  "bugs": {
+    "url": "https://github.com/xingchen-mu/kynflow/issues"
+  },
   "author": {
     "name": "Kynflow contributors",
     "email": "xingchen-mu@users.noreply.github.com"
@@ -37,7 +45,8 @@
     "desktop:dev": "npm run build && node scripts/ensure-electron.mjs && node scripts/run-electron.mjs desktop/main.mjs",
     "desktop:dir": "npm run build && node scripts/ensure-electron.mjs && electron-builder --dir",
     "desktop:dist": "npm run build && node scripts/ensure-electron.mjs && electron-builder",
-    "site:build": "node scripts/build-site.mjs",
+    "site:demo": "DEMO_OUT=site/demo PUBLIC_BASE=./ node scripts/build-demo.mjs",
+    "site:build": "npm run site:demo && node scripts/build-site.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
     "smoke": "node scripts/smoke.mjs",

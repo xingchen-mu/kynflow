@@ -1,5 +1,5 @@
 {
- "format": "infinode/preset",
+ "format": "kynflow/preset",
  "version": 1,
  "id": "seedvr2-image",
  "template": "utility_seedvr2_7b_int8_upscale_image",

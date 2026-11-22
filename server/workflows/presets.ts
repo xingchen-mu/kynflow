@@ -29,7 +29,7 @@ export class PresetStore {
     for (const name of names) {
       try {
         const p = JSON.parse(await readFile(join(this.dir, name), 'utf8'));
-        if (p.format !== 'infinode/preset' || !p.graph) continue;
+        if (p.format !== 'kynflow/preset' || !p.graph) continue;
         const kind = isMediaKind(p.kind) ? p.kind : 'image';
         const inputs = p.inputs ?? [];
         const outputs = p.outputs ?? [];

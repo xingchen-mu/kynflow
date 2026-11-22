@@ -1,5 +1,5 @@
 {
- "format": "infinode/preset",
+ "format": "kynflow/preset",
  "version": 1,
  "id": "flux2-dev-ref",
  "template": "image_flux2",

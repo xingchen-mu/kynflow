@@ -462,7 +462,7 @@ export const EN: Record<string, Translation> = {
   无输入: 'No inputs',
   '{name} 不是有效的 JSON': '{name} is not valid JSON',
   '删除工作流「{name}」？画布上已经生成的内容不受影响。': 'Delete the workflow "{name}"? Results already on the board stay.',
-  '支持 ComfyUI「导出 (API)」的 JSON，和这里导出的 .infinode.json': 'Accepts JSON from ComfyUI\'s "Export (API)" and .infinode.json files exported here',
+  '支持 ComfyUI「导出 (API)」的 JSON，和这里导出的 .kynflow.json': 'Accepts JSON from ComfyUI\'s "Export (API)" and .kynflow.json files exported here',
   导入工作流: 'Import workflow',
   '把工作流 JSON 拖到这里': 'Drop a workflow JSON here',
   '，或点击选择文件': ', or click to choose a file',

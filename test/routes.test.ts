@@ -219,7 +219,7 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
     assert.equal(updated.status, 200);
     assert.equal((await updated.json()).capability.cost, 'high');
     const shared = await request('/api/workflows/draft', 'POST', {
-      json: { format: 'infinode/workflow', version: 1, ...workflow },
+      json: { format: 'kynflow/workflow', version: 1, ...workflow },
     });
     assert.equal(shared.status, 200);
     const sharedDraft: WorkflowDraft = await shared.json();

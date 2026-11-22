@@ -57,7 +57,7 @@ function inputSummary(wf: CustomWorkflow) {
 
 function exportWorkflow(wf: CustomWorkflow) {
   const data = {
-    format: 'infinode/workflow',
+    format: 'kynflow/workflow',
     version: 1,
     name: wf.name,
     description: wf.description,
@@ -70,7 +70,7 @@ function exportWorkflow(wf: CustomWorkflow) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${wf.name.replace(/[\\/:*?"<>|]+/g, '_')}.infinode.json`;
+  a.download = `${wf.name.replace(/[\\/:*?"<>|]+/g, '_')}.kynflow.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -122,7 +122,7 @@ export function WorkflowsModal() {
       wide
       footer={
         <>
-          <span className="m-help">{t('支持 ComfyUI「导出 (API)」的 JSON，和这里导出的 .infinode.json')}</span>
+          <span className="m-help">{t('支持 ComfyUI「导出 (API)」的 JSON，和这里导出的 .kynflow.json')}</span>
           <button className="btn primary" onClick={() => input.current?.click()}>
             <Upload /> {t('导入工作流')}
           </button>
