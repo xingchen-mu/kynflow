@@ -12,6 +12,15 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # 1.5 moved TSchema and Type to a separate package, so these need a manual
+      # migration rather than an automatic bump.
+      - dependency-name: '@earendil-works/pi-ai'
+      - dependency-name: '@earendil-works/pi-agent-core'
+      # Electron major upgrades change the desktop runtime; review them by hand.
+      - dependency-name: 'electron'
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: '/'
