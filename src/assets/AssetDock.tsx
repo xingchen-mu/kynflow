@@ -9,7 +9,7 @@ import { api } from '../lib/api';
 import { t } from '../i18n';
 import { toast, useStore } from '../store';
 
-const WIDTH_KEY = 'infinode:assets-width';
+const WIDTH_KEY = 'kynflow:assets-width';
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 420;
 
@@ -213,7 +213,7 @@ function AssetLibrary() {
                   tabIndex={0}
                   draggable
                   onDragStart={(e) => {
-                    e.dataTransfer.setData('application/x-infinode-asset', JSON.stringify(asset));
+                    e.dataTransfer.setData('application/x-kynflow-asset', JSON.stringify(asset));
                     e.dataTransfer.effectAllowed = 'copy';
                   }}
                   onClick={() => add(asset)}

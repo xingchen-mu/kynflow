@@ -8,6 +8,7 @@ import { addAssets } from '../assets/actions';
 import { toggleAgent, useAgent } from '../assistant/AgentPanel';
 import { launch } from '../generation/tasks';
 import { api } from '../lib/api';
+import { brandIconUrl } from '../lib/assets';
 import { applyTask, select, toast, useStore, zoomAt } from '../store';
 import { createProject, openProject } from './sync';
 import { t } from '../i18n';
@@ -312,7 +313,7 @@ export function TopBar() {
     <div className="topbar-row">
       <div className="topbar left" data-ui>
         <div className="logo" title="Kynflow">
-          <img src="/brand/kynflow-icon.png" alt="" width={22} height={22} />
+          <img src={brandIconUrl} alt="" width={22} height={22} />
         </div>
         <ProjectMenu />
         {saveState !== 'saved' && <span className={`save-state ${saveState}`}>{saveState === 'saving' ? t('保存中…') : t('保存失败')}</span>}

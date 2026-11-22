@@ -1,4 +1,4 @@
-# 参赛方案：TRAE 好应用大赏赛 × Infinode（2026-11-14 制定）
+# 参赛方案：TRAE 好应用大赏赛 × Kynflow（2026-11-14 制定）
 
 > 赛制来源：公众号原文海报（已逐张读图）+ 解出的报名二维码表单。
 > 详细规则在飞书 wiki（`bytedance.larkoffice.com/wiki/VJH6w6tpBi19YCkNBZRcsHJknCf`，需登录），海报已覆盖全部硬约束。
@@ -169,7 +169,7 @@ git ls-remote origin
 
 **③ 定赛道：内容创作。** 提交材料里所有文案统一按"AI 短剧制片台"写，不要按"无限画布"写。10 秒版：
 
-> **Infinode：把一句话变成一条短剧成片。剧本、分镜、关键帧、镜头、剪辑都在你自己的机器上跑；每一帧连回它的来源，每一个镜头都能单独返工。**
+> **Kynflow：把一句话变成一条短剧成片。剧本、分镜、关键帧、镜头、剪辑都在你自己的机器上跑；每一帧连回它的来源，每一个镜头都能单独返工。**
 
 **④ 把三份文案先开个头**（骨架见下）——不要等到 11/20 才写，写的过程会暴露你讲不清的地方。
 
@@ -179,7 +179,7 @@ git ls-remote origin
 
 ### A. 产品说明（300 字，报名表用）
 
-> Infinode 是一个跑在你自己电脑上的 AI 短剧制片台。写一句话给出故事，它按导演手册把片子一步步做出来：剧本 → 分镜表 → 人物与场景设定图 → 每个镜头的关键帧 → 每个镜头一段视频 → 自动剪辑成片（对白响度统一、字幕烧录）。所有生成都交给你自己的 ComfyUI，不经过任何云平台，没有积分、没有排队、没有审查。
+> Kynflow 是一个跑在你自己电脑上的 AI 短剧制片台。写一句话给出故事，它按导演手册把片子一步步做出来：剧本 → 分镜表 → 人物与场景设定图 → 每个镜头的关键帧 → 每个镜头一段视频 → 自动剪辑成片（对白响度统一、字幕烧录）。所有生成都交给你自己的 ComfyUI，不经过任何云平台，没有积分、没有排队、没有审查。
 > 每个结果都用一条线连回它的输入，改一版不用重做全片；哪个镜头不满意，单独重做那一个。任意 ComfyUI 工作流（导出 API）拖进来就能变成画布上的一个一键工具，不锁模型。
 > 演示版（预置结果，不连 GPU）：[URL]　完整版一条命令装在自己机器上：[命令]
 
@@ -235,7 +235,7 @@ git ls-remote origin
 
 ```bash
 npm run export:demo   # 从 data/ 里的真实画布导出 demo/（board.json + meta.json + webp）
-npm run build:demo    # 产出 dist-demo/，默认按 /infinode/ 子路径构建
+npm run build:demo    # 产出 dist-demo/，默认按 /kynflow/ 子路径构建
 PUBLIC_BASE=/ npm run build:demo   # 部署在域名根目录时用这个
 ```
 
@@ -247,7 +247,7 @@ PUBLIC_BASE=/ npm run build:demo   # 部署在域名根目录时用这个
 
 1. 仓库需为公开（私有仓库的 Pages 需要 GitHub Pro）；
 2. `npm run build:demo`，把 `dist-demo/` 推到 `gh-pages` 分支（或 `docs/` 目录）；
-3. 仓库 Settings → Pages → Source 选该分支，入口 `https://<user>.github.io/infinode/`；
+3. 仓库 Settings → Pages → Source 选该分支，入口 `https://<user>.github.io/kynflow/`；
 4. `dist-demo/` 里已带 `404.html` 和 `.nojekyll`，子路径与回退都不用再配。
 
 ### 演示素材的许可现状（提交时必须原样披露）

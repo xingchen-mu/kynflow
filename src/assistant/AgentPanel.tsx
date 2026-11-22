@@ -19,8 +19,8 @@ import { MemoryModal } from './Memory';
 import { QuestionCard } from './Question';
 import { Todos } from './Todos';
 
-const WIDTH_KEY = 'infinode:agent-width';
-const SOURCE_KEY = 'infinode:agent-source';
+const WIDTH_KEY = 'kynflow:agent-width';
+const SOURCE_KEY = 'kynflow:agent-source';
 
 type AgentSource = 'builtin' | 'extensions';
 

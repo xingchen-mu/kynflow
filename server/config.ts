@@ -1,11 +1,11 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const envFile = process.env.INFINODE_ENV_FILE ?? '.env';
+const envFile = process.env.KYNFLOW_ENV_FILE ?? '.env';
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 
 export const config = {
-  appRoot: resolve(process.env.INFINODE_APP_ROOT ?? '.'),
+  appRoot: resolve(process.env.KYNFLOW_APP_ROOT ?? '.'),
   port: Number(process.env.PORT ?? 8787),
   /** 127.0.0.1 keeps the app private to this machine; 0.0.0.0 shares it on the LAN. */
   host: process.env.HOST ?? '127.0.0.1',

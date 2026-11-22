@@ -131,13 +131,13 @@ const realApi = {
     const init = json('PUT', patch);
     return request<{ updatedAt: number }>(`/api/projects/${id}`, {
       ...init,
-      headers: { ...(init.headers as Record<string, string>), 'X-Infinode-Client': clientId },
+      headers: { ...(init.headers as Record<string, string>), 'X-Kynflow-Client': clientId },
       keepalive,
     });
   },
   /** Moves the board into a series, or out of one with null. */
   setProjectSeries: (id: string, seriesId: string | null) =>
-    request<{ seriesId: string | null }>(`/api/projects/${id}/series`, { ...json('PUT', { seriesId }), headers: { 'X-Infinode-Client': clientId } }),
+    request<{ seriesId: string | null }>(`/api/projects/${id}/series`, { ...json('PUT', { seriesId }), headers: { 'X-Kynflow-Client': clientId } }),
   series: () => request<Series[]>('/api/series'),
   createSeries: (name?: string) => request<Series>('/api/series', json('POST', { name })),
   deleteProject: (id: string) => request<{ ok: true }>(`/api/projects/${id}`, { method: 'DELETE' }),

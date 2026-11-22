@@ -7,7 +7,7 @@
 
 ## 1. 事实卡（截至 2026-11-14）
 
-| 指标 | Toonflow | Infinode |
+| 指标 | Toonflow | Kynflow |
 |---|---|---|
 | Stars / Forks | **21,733 / 3,929** | 0（私有仓库） |
 | 建仓 | 2026-01-29（约 9.5 个月） | 2026-10-31 |
@@ -22,7 +22,7 @@
 | 技术栈 | TypeScript monorepo，Bun 1.4.3 + **ElectroBun**，插件市场，3D 导演台 | TypeScript，React+Vite+Hono，Electron |
 
 **注意最近 10 次提交的内容**：全部是安装包与运行时修复——Windows TAR 的 PAX 编码、Linux 按需下载 Bun 运行时、macOS DMG 发布修复、构建目录边界。
-**同一周，Infinode 的提交是**：短剧手册、成本显示、卡片布局、助手记忆。
+**同一周，Kynflow 的提交是**：短剧手册、成本显示、卡片布局、助手记忆。
 
 同一套产品想法，一边在做**发版与安装**，一边在做**功能**。这就是 21,733 与 0 的全部差距。
 
@@ -32,7 +32,7 @@
 
 Toonflow 的 README 亮点表逐条对照你：
 
-| 能力 | Toonflow | Infinode | 同构？ |
+| 能力 | Toonflow | Kynflow | 同构？ |
 |---|---|---|---|
 | 本地部署 | ✅ 桌面/Android/Docker/服务器 | ✅ 网页/Electron | 同 |
 | 无限画布 | ✅ 剧本、角色、场景、视频片段同布 | ✅ 同 | 同 |

@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Settings as SettingsIc
 import { useEffect, useMemo, useState } from 'react';
 import type { AgentStatus, Capabilities, PresetInfo } from '../../shared/types';
 import { api } from '../lib/api';
+import { brandIconUrl } from '../lib/assets';
 import { Modal } from '../components/Modal';
 import { t } from '../i18n';
 import { useStore } from '../store';
@@ -9,7 +10,7 @@ import { useStore } from '../store';
 type CheckState = { caps: Capabilities | null; agent: AgentStatus | null; presets: PresetInfo[]; loading: boolean };
 
 function markSeen() {
-  localStorage.setItem('infinode:onboarding', 'done');
+  localStorage.setItem('kynflow:onboarding', 'done');
 }
 
 function StatusIcon({ ok }: { ok: boolean }) {
@@ -44,7 +45,7 @@ export function OnboardingModal() {
   const hasServer = Boolean(state.caps || state.agent);
 
   return (
-    <Modal title={<><img className="onboarding-logo" src="/brand/kynflow-icon.png" alt="" /> {t('欢迎使用 Kynflow')}</>} onClose={close}>
+    <Modal title={<><img className="onboarding-logo" src={brandIconUrl} alt="" /> {t('欢迎使用 Kynflow')}</>} onClose={close}>
       <div className="onboarding-intro">
         <h2>{t('一张原生 ComfyUI 画布')}</h2>
       </div>

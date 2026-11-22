@@ -305,7 +305,7 @@ export async function runCut(
     return { path: deps.assets.path(stored), start: c.start, end: c.end, lines };
   });
   progress?.(t('剪辑 {n} 段…', { n: clips.length }));
-  const dir = await mkdtemp(join(tmpdir(), 'infinode-cut-'));
+  const dir = await mkdtemp(join(tmpdir(), 'kynflow-cut-'));
   try {
     const out = join(dir, 'cut.mp4');
     const cut = await concatClips(clips, out, signal, { level: options.level !== false, subtitles: options.subtitles !== false });
@@ -1394,7 +1394,7 @@ export function canvasTools(deps: CanvasDeps, writer: ResultWriter, host: ToolHo
           );
         }
         ctx.progress?.(`剪辑 ${clips.length} 段…`);
-        const dir = await mkdtemp(join(tmpdir(), 'infinode-cut-'));
+        const dir = await mkdtemp(join(tmpdir(), 'kynflow-cut-'));
         try {
           const out = join(dir, 'cut.mp4');
           const cut = await concatClips(clips, out, ctx.signal, { level: args.level !== false, subtitles: args.subtitles !== false });

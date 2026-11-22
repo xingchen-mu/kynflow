@@ -13,7 +13,7 @@ labels: bug
 **期望的结果**
 
 **环境**
-- Infinode 版本 / commit：
+- Kynflow 版本 / commit：
 - ComfyUI 版本（设置页可以看到）：
 - 浏览器 / 系统：
 - 用的工具或模板：

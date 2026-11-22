@@ -107,7 +107,7 @@ export function download(item: CanvasItem) {
   const ext = item.asset.url.split('.').pop();
   const a = document.createElement('a');
   a.href = item.asset.url;
-  a.download = `infinode-${item.id}.${ext}`;
+  a.download = `kynflow-${item.id}.${ext}`;
   a.click();
 }
 /** Saves the frame currently shown by a video item as a new image next to it. */

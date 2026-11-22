@@ -70,7 +70,7 @@ export interface State {
 for (const key of ['last-project', 'composer', 'links']) {
   const old = localStorage.getItem(`comfy-canva:${key}`);
   if (old === null) continue;
-  if (localStorage.getItem(`infinode:${key}`) === null) localStorage.setItem(`infinode:${key}`, old);
+  if (localStorage.getItem(`kynflow:${key}`) === null) localStorage.setItem(`kynflow:${key}`, old);
   localStorage.removeItem(`comfy-canva:${key}`);
 }
 
@@ -95,7 +95,7 @@ export const useStore = create<State>(() => ({
   lightboxId: null,
   saveState: 'saved',
   screen: { w: window.innerWidth, h: window.innerHeight },
-  showLinks: localStorage.getItem('infinode:links') !== 'off',
+  showLinks: localStorage.getItem('kynflow:links') !== 'off',
   pendingOutput: null,
   workflows: [],
   presets: [],
@@ -106,7 +106,7 @@ export const useStore = create<State>(() => ({
 
 export function setShowLinks(on: boolean) {
   useStore.setState({ showLinks: on });
-  localStorage.setItem('infinode:links', on ? 'on' : 'off');
+  localStorage.setItem('kynflow:links', on ? 'on' : 'off');
 }
 
 const set = useStore.setState;

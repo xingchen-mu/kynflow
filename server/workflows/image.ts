@@ -2,7 +2,7 @@ import { Graph, type BuiltWorkflow, type Handle, type InputFile, capPixels, snap
 import { model as modelFile } from './models.ts';
 import { t } from '../i18n.ts';
 
-const PREFIX = 'infinode/';
+const PREFIX = 'kynflow/';
 
 // ---------------------------------------------------------------- Z-Image Turbo
 

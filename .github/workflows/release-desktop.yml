@@ -102,6 +102,6 @@ jobs:
             gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPO" --clobber
           else
             gh release create "$RELEASE_TAG" "${assets[@]}" --repo "$RELEASE_REPO" \
-              --title "Infinode ${RELEASE_TAG#v}" \
+              --title "Kynflow ${RELEASE_TAG#v}" \
               --generate-notes
           fi

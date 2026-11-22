@@ -12,7 +12,7 @@ import type { AssetInfo, PresetInfo, Project, WorkflowDraft } from '../shared/ty
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('feature routes preserve HTTP behavior and existing data paths', { timeout: 30_000 }, async (t) => {
-  const dataDir = await mkdtemp(join(tmpdir(), 'infinode-routes-'));
+  const dataDir = await mkdtemp(join(tmpdir(), 'kynflow-routes-'));
   const server = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     env: { ...process.env, NODE_ENV: 'test', HOST: '127.0.0.1', PORT: '0', DATA_DIR: dataDir, COMFY_URL: 'http://127.0.0.1:9', ALLOWED_HOSTS: '', AGENT_MODEL: 'missing/test' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -30,11 +30,11 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
     }
     await rm(dataDir, { recursive: true, force: true });
   });
-  for (let attempt = 0; attempt < 150 && !output.includes('infinode server on'); attempt++) {
+  for (let attempt = 0; attempt < 150 && !output.includes('kynflow server on'); attempt++) {
     assert.equal(server.exitCode, null, output);
     await pause(100);
   }
-  const base = /infinode server on (http:\/\/127\.0\.0\.1:\d+)/.exec(output)?.[1];
+  const base = /kynflow server on (http:\/\/127\.0\.0\.1:\d+)/.exec(output)?.[1];
   assert.ok(base, `Server did not start: ${output}`);
   const request = (path: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => fetch(base + path, {
     method,
@@ -115,7 +115,7 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
       await untilEvent('hello');
       const patch = await request(`/api/projects/${project.id}/items`, 'PATCH', {
         upsert: [{ id: 'note-test', kind: 'text', x: 10, y: 20, w: 200, h: 100, text: 'Saved note', createdAt: Date.now() }],
-      }, { 'x-infinode-client': 'test-client' });
+      }, { 'x-kynflow-client': 'test-client' });
       assert.equal(patch.status, 200);
       await untilEvent('project');
       assert.match(buffered, /test-client/);

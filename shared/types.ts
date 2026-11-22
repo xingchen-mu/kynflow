@@ -762,7 +762,7 @@ export interface AgentExtension {
   /** The executable looked up on PATH to tell whether it is installed. */
   bin: string;
   installed: boolean;
-  /** Its MCP config already mentions infinode. */
+  /** Its MCP config already mentions kynflow. */
   mcpConfigured: boolean;
   /** Where that config lives, e.g. "~/.claude.json". */
   configPath: string;

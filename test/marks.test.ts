@@ -8,7 +8,7 @@ import type { AssetInfo, CanvasItem, Project, Task } from '../shared/types.ts';
 import { cropFrame, markBoxes } from '../server/agent/media.ts';
 import { canvasTools, promptHint } from '../server/agent/tools.ts';
 
-const dir = mkdtempSync(join(tmpdir(), 'infinode-marks-'));
+const dir = mkdtempSync(join(tmpdir(), 'kynflow-marks-'));
 const grey = async () => sharp({ create: { width: 400, height: 200, channels: 3, background: '#808080' } }).png().toBuffer();
 const pixel = async (png: Buffer, x: number, y: number) => {
   const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });

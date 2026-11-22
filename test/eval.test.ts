@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'infinode-eval-test-'));
+process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'kynflow-eval-test-'));
 const { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } = await import('@earendil-works/pi-ai');
 const { AssetStore } = await import('../server/assets/store.ts');
 const { ProjectStore } = await import('../server/projects/store.ts');

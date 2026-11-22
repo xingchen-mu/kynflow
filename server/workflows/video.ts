@@ -2,7 +2,7 @@ import { Graph, type BuiltWorkflow, type InputFile } from './graph.ts';
 import { model as modelFile } from './models.ts';
 import { t } from '../i18n.ts';
 
-const PREFIX = 'infinode/';
+const PREFIX = 'kynflow/';
 
 function saveVideo(g: Graph, video: unknown, name: string) {
   return g.add('SaveVideo', { video, filename_prefix: PREFIX + name, format: 'auto', 'format.codec': 'auto' });

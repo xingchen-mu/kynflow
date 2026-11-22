@@ -31,19 +31,19 @@ comfy.connect(
 );
 
 serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
-  console.log(`infinode server on http://${config.host}:${info.port}  (ComfyUI: ${comfy.baseUrl})`);
+  console.log(`kynflow server on http://${config.host}:${info.port}  (ComfyUI: ${comfy.baseUrl})`);
 });
 
 let stopping = false;
 function shutdown(why: string) {
   if (stopping) return;
   stopping = true;
-  console.log(`infinode server stopping (${why})`);
+  console.log(`kynflow server stopping (${why})`);
   void Promise.allSettled([tasks.flush(), assets.flush()]).then(() => process.exit(0));
 }
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => shutdown(sig));
 
 // Started by the desktop app: stop with it, even when it could not stop us (crash, force quit).
-const parent = Number(process.env.INFINODE_PARENT_PID);
+const parent = Number(process.env.KYNFLOW_PARENT_PID);
 if (parent > 0) watchParent(parent, () => shutdown('the desktop app is gone'));

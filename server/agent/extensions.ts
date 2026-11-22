@@ -72,12 +72,12 @@ function onPath(bin: string): boolean {
   return dirs.some((dir) => suffixes.some((suffix) => existsSync(join(dir, bin + suffix))));
 }
 
-/** Reads the client's config, skipping huge files we have no business loading. `infinode` is the old name. */
+/** Reads the client's config, skipping huge files we have no business loading. */
 function mentionsKynflow(file: string): boolean {
   try {
     const stat = statSync(file);
     if (!stat.isFile() || stat.size > 16 * 1024 * 1024) return false;
-    return /kynflow|infinode/i.test(readFileSync(file, 'utf8'));
+    return /kynflow/i.test(readFileSync(file, 'utf8'));
   } catch {
     return false;
   }

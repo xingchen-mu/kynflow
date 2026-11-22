@@ -4,7 +4,7 @@ import { cloneItems, isTextual } from './items';
 import { boundsOf } from '../../shared/geometry';
 
 /** Written to the system clipboard on copy, so a later paste knows to use our items. */
-export const CLIP_MARKER = 'infinode:items';
+export const CLIP_MARKER = 'kynflow:items';
 
 let copied: CanvasItem[] = [];
 let pasteCount = 0;

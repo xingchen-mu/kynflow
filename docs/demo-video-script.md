@@ -237,11 +237,11 @@
 - **画面**：2:44–2:47 成片最后 3 秒（带字幕）→ 2:47 淡出 → 2:48 结束卡：
 
   ```
-  Infinode · AI 短剧制片台
+  Kynflow · AI 短剧制片台
   把一句话变成一条能交付的短剧成片
 
   Demo（预置素材，不连 GPU）：https://________
-  完整版（自己的 ComfyUI）：github.com/________/infinode
+  完整版（自己的 ComfyUI）：github.com/________/kynflow
   ```
 
 - **旁白原话**（2:44 起）：

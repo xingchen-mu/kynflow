@@ -585,7 +585,7 @@ export function buildCustom(wf: CustomWorkflow, req: Extract<TaskRequest, { op: 
   // Keep results together in ComfyUI's output folder.
   for (const id of wf.outputs) {
     const node = graph[id];
-    if (node && typeof node.inputs.filename_prefix === 'string') node.inputs.filename_prefix = `infinode/${slug(wf.name)}`;
+    if (node && typeof node.inputs.filename_prefix === 'string') node.inputs.filename_prefix = `kynflow/${slug(wf.name)}`;
   }
 
   const first = files.images[0];

@@ -20,7 +20,7 @@ export interface ComposerSettings {
   params: Record<string, Record<string, string | number | boolean>>;
 }
 
-const COMPOSER_KEY = 'infinode:composer';
+const COMPOSER_KEY = 'kynflow:composer';
 const defaultComposer: ComposerSettings = {
   mode: 'image',
   workflowId: '',

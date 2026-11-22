@@ -1,12 +1,12 @@
 import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { cpSync, existsSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const isDev = process.env.INFINODE_DESKTOP_DEV === '1';
-const devUrl = process.env.INFINODE_DEV_URL || 'http://127.0.0.1:5173';
+const isDev = process.env.KYNFLOW_DESKTOP_DEV === '1';
+const devUrl = process.env.KYNFLOW_DEV_URL || 'http://127.0.0.1:5173';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let backend;
 /** The backend's URL once it answers; one backend per app, shared by every window. */
@@ -47,7 +47,30 @@ function runtimePath(...parts) {
   return path.join(process.resourcesPath, 'app.asar.unpacked', ...parts);
 }
 
+/**
+ * The app used to be called Infinode, which put its data in a userData folder of that name. Copy the
+ * boards and the assistant's .env into the new folder once, so the rename does not lose them.
+ */
+function migrateLegacyUserData() {
+  const current = app.getPath('userData');
+  const missing = ['data', '.env'].filter((name) => !existsSync(path.join(current, name)));
+  if (!missing.length) return;
+  for (const legacyName of ['infinode', 'Infinode']) {
+    const legacy = path.join(path.dirname(current), legacyName);
+    if (!missing.some((name) => existsSync(path.join(legacy, name)))) continue;
+    for (const name of missing) {
+      try {
+        cpSync(path.join(legacy, name), path.join(current, name), { recursive: true });
+      } catch {
+        // A failed copy must not stop the app from starting; it falls back to an empty folder.
+      }
+    }
+    return;
+  }
+}
+
 async function startBackend() {
+  migrateLegacyUserData();
   const port = await freePort();
   const appPath = app.isPackaged ? app.getAppPath() : sourceRoot;
   const dataDir = path.join(app.getPath('userData'), 'data');
@@ -65,12 +88,12 @@ async function startBackend() {
     HOST: '127.0.0.1',
     PORT: String(port),
     DATA_DIR: dataDir,
-    INFINODE_APP_ROOT: appPath,
-    INFINODE_ENV_FILE: envFile,
+    KYNFLOW_APP_ROOT: appPath,
+    KYNFLOW_ENV_FILE: envFile,
     PRESETS_DIR: path.join(appPath, 'presets'),
     ELECTRON_RUN_AS_NODE: '1',
     // The backend stops by itself if this process goes away without stopping it (crash, force quit).
-    INFINODE_PARENT_PID: String(process.pid),
+    KYNFLOW_PARENT_PID: String(process.pid),
   };
 
   const child = spawn(process.execPath, [runner, entry], {
@@ -81,12 +104,12 @@ async function startBackend() {
   });
   backend = child;
   let errors = '';
-  child.stdout?.on('data', (chunk) => console.log(`[infinode] ${chunk.toString().trimEnd()}`));
+  child.stdout?.on('data', (chunk) => console.log(`[kynflow] ${chunk.toString().trimEnd()}`));
   child.stderr?.on('data', (chunk) => {
-    console.error(`[infinode] ${chunk.toString().trimEnd()}`);
+    console.error(`[kynflow] ${chunk.toString().trimEnd()}`);
     errors = (errors + chunk.toString()).slice(-600);
   });
-  child.on('error', (error) => console.error('[infinode] backend error', error));
+  child.on('error', (error) => console.error('[kynflow] backend error', error));
   child.on('exit', () => {
     // A window opened after this starts a fresh backend.
     if (backend === child) {

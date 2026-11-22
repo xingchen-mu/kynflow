@@ -8,7 +8,7 @@ import type { Task, TaskRequest } from '../shared/types.ts';
 import type { ComfyClient, QueueState } from '../server/comfy/client.ts';
 import type { AssetStore } from '../server/assets/store.ts';
 
-const dataDir = await mkdtemp(join(tmpdir(), 'infinode-queue-'));
+const dataDir = await mkdtemp(join(tmpdir(), 'kynflow-queue-'));
 process.env.DATA_DIR = dataDir;
 const { TaskManager } = await import('../server/tasks/manager.ts');
 const managers: InstanceType<typeof TaskManager>[] = [];

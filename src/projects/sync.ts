@@ -6,7 +6,7 @@ import { applyTask, resolveItems, toast, useStore } from '../store';
 import { msg } from '../../shared/i18n';
 import { t } from '../i18n';
 
-const LAST_KEY = 'infinode:last-project';
+const LAST_KEY = 'kynflow:last-project';
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let loading = false;

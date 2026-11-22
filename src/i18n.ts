@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode, createElement } from 'react';
 import { type Lang, type Vars, isLang, joinList, translate } from '../shared/i18n';
 
-const KEY = 'infinode:lang';
+const KEY = 'kynflow:lang';
 
 /** The page's language, fixed for the life of the page: switching saves it and reloads. */
 export const lang: Lang = (() => {

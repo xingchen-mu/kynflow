@@ -170,7 +170,7 @@ export function App() {
       .catch(() => {});
     void loadWorkflows();
     void refreshCaps();
-    if (!isDemo && localStorage.getItem('infinode:onboarding') !== 'done') {
+    if (!isDemo && localStorage.getItem('kynflow:onboarding') !== 'done') {
       window.setTimeout(() => {
         if (!useStore.getState().modal) useStore.setState({ modal: { type: 'onboarding' } });
       }, 450);

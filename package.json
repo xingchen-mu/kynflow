@@ -1,5 +1,5 @@
 {
-  "name": "infinode",
+  "name": "kynflow",
   "private": true,
   "version": "0.2.0",
   "main": "desktop/main.mjs",
@@ -81,7 +81,7 @@
     "vite": "^8.3.5"
   },
   "build": {
-    "appId": "com.infinode.app",
+    "appId": "com.kynflow.app",
     "productName": "Kynflow",
     "asar": true,
     "files": [

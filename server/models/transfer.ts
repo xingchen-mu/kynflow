@@ -51,7 +51,7 @@ export interface ProbeResult {
   folderOk?: boolean;
 }
 
-const UA = 'infinode-model-download';
+const UA = 'kynflow-model-download';
 /** Until response headers arrive; later the stream may pause this long before it counts as stalled. */
 const TIMEOUT = 30_000;
 /** Room to leave on the disk after the file is written. */

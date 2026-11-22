@@ -1,10 +1,10 @@
 import { Clapperboard, Loader2, Play, Scan } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { boundsOf } from '../../shared/geometry';
-import { ensureVisible, fitAll } from '../canvas/view';
+import { boundsOf, fitViewport } from '../../shared/geometry';
+import { fitAll } from '../canvas/view';
 import { launch } from '../generation/tasks';
 import { demoHeroId, demoMeta } from '../lib/demo';
-import { toast, useStore } from '../store';
+import { setViewport, toast, useStore } from '../store';
 import { t } from '../i18n';
 
 /** Shown only in the static demo build: says what is preloaded, and lets a visitor try the flow. */
@@ -15,14 +15,16 @@ export function DemoBanner() {
 
   const hero = demoHeroId(items);
 
-  // First view lands on the finished video, not on an empty corner of the board.
+  // First view frames the whole media chain (minus the text note) at a readable zoom.
   useEffect(() => {
-    if (focused.current || !hero) return;
-    const item = items.find((i) => i.id === hero);
-    if (!item) return;
+    if (focused.current) return;
+    const media = items.filter((i) => i.kind !== 'text');
+    const b = boundsOf(media.length ? media : items);
+    if (!b) return;
     focused.current = true;
-    ensureVisible(boundsOf([item])!);
-  }, [hero, items]);
+    const { screen } = useStore.getState();
+    setViewport(fitViewport(b, screen.w, screen.h - 160, 60, 0.3));
+  }, [items]);
 
   const watch = () => {
     if (hero) useStore.setState({ lightboxId: hero });

@@ -10,7 +10,7 @@ import { lastFrame } from '../server/agent/media.ts';
 import { canvasTools } from '../server/agent/tools.ts';
 
 const skip = spawnSync('ffmpeg', ['-version']).status === 0 ? false : 'ffmpeg is not installed';
-const dir = mkdtempSync(join(tmpdir(), 'infinode-capture-'));
+const dir = mkdtempSync(join(tmpdir(), 'kynflow-capture-'));
 
 /** One second at 10 fps of ffmpeg's test pattern, whose frames all differ. */
 function clip(): string {

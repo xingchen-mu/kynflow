@@ -101,7 +101,7 @@ export function frameDistance(a: number[], b: number[]): number {
  * succeeds), so the last second is decoded with each frame written over the one before.
  */
 export async function lastFrame(path: string, signal?: AbortSignal): Promise<Buffer> {
-  const dir = await mkdtemp(join(tmpdir(), 'infinode-frame-'));
+  const dir = await mkdtemp(join(tmpdir(), 'kynflow-frame-'));
   try {
     const out = join(dir, 'last.png');
     await exec('ffmpeg', ['-v', 'error', '-sseof', '-1', '-i', path, '-update', '1', '-y', out], signal);
@@ -402,7 +402,7 @@ export async function concatClips(clips: Clip[], out: string, signal?: AbortSign
   );
   const total = offset;
 
-  const dir = cues.length ? await mkdtemp(join(tmpdir(), 'infinode-subs-')) : '';
+  const dir = cues.length ? await mkdtemp(join(tmpdir(), 'kynflow-subs-')) : '';
   try {
     const args = ['-v', 'error', '-y'];
     const graph: string[] = [];

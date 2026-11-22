@@ -340,7 +340,7 @@ export function Canvas() {
     setDropping(false);
     const { sx, sy } = local(e);
     const at = toWorld(useStore.getState().viewport, sx, sy);
-    const raw = e.dataTransfer.getData('application/x-infinode-asset');
+    const raw = e.dataTransfer.getData('application/x-kynflow-asset');
     if (raw) {
       try {
         addAssets([JSON.parse(raw) as AssetInfo], at);

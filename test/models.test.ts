@@ -113,7 +113,7 @@ function serveFile(req: IncomingMessage, res: ServerResponse) {
 }
 
 before(async () => {
-  work = await mkdtemp(join(tmpdir(), 'infinode-models-'));
+  work = await mkdtemp(join(tmpdir(), 'kynflow-models-'));
   server = createServer((req, res) => {
     const url = req.url ?? '';
     if (url.startsWith('/cdn/')) return serveFile(req, res);

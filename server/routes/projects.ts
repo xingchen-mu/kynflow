@@ -38,7 +38,7 @@ export function registerProjectsRoutes(app: Hono, { projects, agent, assets, tas
     return project ? c.json(project) : c.json({ error: t('快照不存在') }, 404);
   });
   /** Who made a change: the page's per-tab id, or "external" for scripts and agents. */
-  const writer = (c: { req: { header(name: string): string | undefined } }) => (c.req.header('x-infinode-client') ?? 'external').slice(0, 64);
+  const writer = (c: { req: { header(name: string): string | undefined } }) => (c.req.header('x-kynflow-client') ?? 'external').slice(0, 64);
 
   /** Moves the board into a series or out of one; a series change is not a board save, so no version check. */
   app.put('/api/projects/:id/series', async (c) => {

@@ -173,7 +173,7 @@ interface ToolDetails {
   question?: AgentQuestion;
 }
 
-const AGENT_APPROVAL = '__infinode_agent_approval';
+const AGENT_APPROVAL = '__kynflow_agent_approval';
 
 /**
  * The user's edits to the prompts on a card, written into the work it holds: `jobs[i].prompt` of a batch, or

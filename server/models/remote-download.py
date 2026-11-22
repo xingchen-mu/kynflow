@@ -15,7 +15,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 JOB = json.loads(base64.b64decode(ARGS).decode('utf-8'))  # noqa: F821 (ARGS is prepended by the caller)
-UA = 'infinode-model-download'
+UA = 'kynflow-model-download'
 TIMEOUT = 30
 # Per address: CDNs resolve to several, and from some networks a few of them never answer.
 CONNECT_TIMEOUT = 5

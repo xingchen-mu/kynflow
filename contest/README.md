@@ -1,7 +1,7 @@
 # TRAE 好应用大赏赛 · 提交材料
 
 > 赛道：**02 内容创作**（AI 短剧制片台）
-> 产品：**Infinode**
+> 产品：**Kynflow**
 > 提交窗口：2026-11-10 – 11-23
 > **公网演示（已部署）**：https://37jvsot942shvcu7nwx.traesite.cn
 

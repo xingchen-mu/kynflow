@@ -9,7 +9,7 @@ import { DataDirInUse, lockDataDir, watchParent } from '../server/lock.ts';
 
 /** The id of a process that has already exited. */
 const deadPid = () => spawnSync(process.execPath, ['-e', '']).pid!;
-const folder = () => mkdtempSync(join(tmpdir(), 'infinode-lock-'));
+const folder = () => mkdtempSync(join(tmpdir(), 'kynflow-lock-'));
 
 test('a second server on the same data folder is refused while the first runs', () => {
   const dir = folder();

@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-process.env.DATA_DIR ??= mkdtempSync(join(tmpdir(), 'infinode-memory-test-'));
+process.env.DATA_DIR ??= mkdtempSync(join(tmpdir(), 'kynflow-memory-test-'));
 const { MemoryStore, memoryBlock, memoryPromotions, describeMemory } = await import('../server/agent/memory.ts');
 const { readMemoryUpdates } = await import('../server/agent/runtime.ts');
 const { isActiveEntity, isActiveMemory } = await import('../shared/types.ts');
 
-const store = () => new MemoryStore(mkdtempSync(join(tmpdir(), 'infinode-memory-')));
+const store = () => new MemoryStore(mkdtempSync(join(tmpdir(), 'kynflow-memory-')));
 const board = 'board00001';
 
 test('the assistant adds, updates and deletes memory, without saying the same thing twice', async () => {
@@ -113,7 +113,7 @@ test('types outside a scope are refused, not silently changed', async () => {
 });
 
 test('a broken memory file is kept aside instead of being overwritten', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'infinode-memory-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kynflow-memory-'));
   const m = new MemoryStore(dir);
   writeFileSync(join(dir, `memory-board-${board}.json`), '{ broken');
   assert.deepEqual(await m.read('board', board), { auto: true, entries: [], entities: [] });
@@ -237,7 +237,7 @@ test('an empty entity row is dropped, but a named entity cannot lose its name', 
 });
 
 test('a version 1 file reads without entities and is upgraded on the next write', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'infinode-memory-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kynflow-memory-'));
   const file = join(dir, `memory-board-${board}.json`);
   writeFileSync(file, JSON.stringify({ version: 1, auto: true, entries: [{ id: 'm1', type: 'decision', text: '用 480p', at: 1, by: 'assistant' }] }));
   const m = new MemoryStore(dir);
@@ -323,7 +323,7 @@ test('a branch carries board memory; series memory stays shared, not copied', as
 });
 
 test('with an embeddings model, memory is found by meaning; without one, only by keywords', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'infinode-memory-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kynflow-memory-'));
   const vectors: Record<string, number[]> = {
     女主长什么样: [1, 0.1],
     林晚是短发: [1, 0.05],
@@ -346,7 +346,7 @@ test('with an embeddings model, memory is found by meaning; without one, only by
 });
 
 test('a failing embeddings endpoint falls back to keywords', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'infinode-memory-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kynflow-memory-'));
   const broken = {
     model: 'fake',
     async embed(): Promise<number[][]> {
@@ -360,7 +360,7 @@ test('a failing embeddings endpoint falls back to keywords', async () => {
 });
 
 test('a broken vector index is rebuilt without touching the memory file', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'infinode-memory-'));
+  const dir = mkdtempSync(join(tmpdir(), 'kynflow-memory-'));
   const embedder = {
     model: 'fake',
     async embed(texts: string[]) {

@@ -25,7 +25,7 @@ if (existsSync('.env')) process.loadEnvFile('.env');
 
 type ObjectInfo = Record<string, { input: { required?: Record<string, unknown[]>; optional?: Record<string, unknown[]> } }>;
 
-const comfy = new ComfyClient(process.env.COMFY_URL ?? 'http://127.0.0.1:8188', `infinode-demo-${process.pid}`);
+const comfy = new ComfyClient(process.env.COMFY_URL ?? 'http://127.0.0.1:8188', `kynflow-demo-${process.pid}`);
 const seed = Number(process.env.DEMO_SEED ?? 42);
 const assetsDir = join('data', 'assets');
 const projectFile = join('data', 'projects', 'demoClean1.json');

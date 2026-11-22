@@ -23,7 +23,7 @@ async function stableClientId() {
   try {
     return (await readFile(file, 'utf8')).trim();
   } catch {
-    const id = `infinode-${randomUUID().slice(0, 8)}`;
+    const id = `kynflow-${randomUUID().slice(0, 8)}`;
     await mkdir(config.dataDir, { recursive: true });
     await writeFile(file, id);
     return id;

@@ -10,7 +10,7 @@ import { canvasTools } from '../server/agent/tools.ts';
 import { DIALOGUE_LUFS, concatClips, levelGains, lineTimes, loudness, placeCues, splitSubtitle, subtitleLayout, subtitleText } from '../server/agent/media.ts';
 
 const skip = spawnSync('ffmpeg', ['-version']).status === 0 ? false : 'ffmpeg is not installed';
-const dir = mkdtempSync(join(tmpdir(), 'infinode-cut-'));
+const dir = mkdtempSync(join(tmpdir(), 'kynflow-cut-'));
 
 test('subtitles drop pause punctuation and the closing full stop, as Chinese subtitles are set, and keep ？！', () => {
   assert.equal(subtitleText('行，你慢慢看。我把烧烤放桌上了。'), '行　你慢慢看　我把烧烤放桌上了');

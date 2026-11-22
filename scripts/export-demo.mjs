@@ -113,7 +113,7 @@ for (const item of items) {
 }
 
 const meta = {
-  title: 'Infinode 演示模式',
+  title: 'Kynflow 演示模式',
   summary: project.summary ?? '一张参考图 → 换主体、消除、重绘、扩图、视频；每个结果都连回它的来源。',
   notice: '演示模式：结果是本机 ComfyUI 预生成的真实产物，页面不连接 GPU。',
   demo: {

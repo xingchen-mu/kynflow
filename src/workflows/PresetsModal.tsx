@@ -18,7 +18,7 @@ const close = () => useStore.setState({ modal: null });
 // Template categories as the presets store them (Chinese), shown through t().
 const ALL = msg('全部');
 const CATEGORIES = [ALL, msg('图片生成'), msg('图片编辑'), msg('视频生成'), msg('工具')];
-const CATEGORY_KEY = 'infinode:template-category';
+const CATEGORY_KEY = 'kynflow:template-category';
 
 function PresetCard({ p }: { p: PresetInfo }) {
   const caps = useStore((s) => s.caps);
