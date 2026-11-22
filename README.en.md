@@ -79,8 +79,8 @@ It has to-do lists, questions with clickable choices, plan mode, rewind to an ea
 The backend ships an MCP server at `http://127.0.0.1:8787/mcp`, open to this machine only:
 
 ```bash
-claude mcp add --transport http infinode http://127.0.0.1:8787/mcp
-codex mcp add infinode --url http://127.0.0.1:8787/mcp
+claude mcp add --transport http kynflow http://127.0.0.1:8787/mcp
+codex mcp add kynflow --url http://127.0.0.1:8787/mcp
 ```
 
 External agents get the same tools as the assistant — read the board, view images, generate images and video, cut a final video — and know which board and items you have selected in the page.

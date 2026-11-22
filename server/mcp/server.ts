@@ -60,7 +60,7 @@ export class CanvasMcp {
 
   /** Stateless: a fresh server per request, answered as plain JSON once the call is done. */
   async handle(req: Request): Promise<Response> {
-    const server = new Server({ name: 'infinode', version: this.version }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+    const server = new Server({ name: 'kynflow', version: this.version }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
         ...this.own().map(({ name, title, description, inputSchema, readOnly }) => ({ name, title, description, inputSchema, annotations: hints(readOnly) })),

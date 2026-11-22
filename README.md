@@ -79,8 +79,8 @@ DEEPSEEK_API_KEY=sk-...              # 默认 deepseek/deepseek-flash，能看�
 后端自带 MCP 服务 `http://127.0.0.1:8787/mcp`，只对本机开放：
 
 ```bash
-claude mcp add --transport http infinode http://127.0.0.1:8787/mcp
-codex mcp add infinode --url http://127.0.0.1:8787/mcp
+claude mcp add --transport http kynflow http://127.0.0.1:8787/mcp
+codex mcp add kynflow --url http://127.0.0.1:8787/mcp
 ```
 
 外部 agent 能用和画布助手同一套工具读画布、看图、出图出视频、剪辑成片，并知道你在页面上选中了什么。
