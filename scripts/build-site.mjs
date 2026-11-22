@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdir, cp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -9,3 +10,10 @@ await cp(join(root, 'docs', 'media', 'logo.svg'), join(target, 'logo.svg'));
 await cp(join(root, 'docs', 'media', 'hero.png'), join(target, 'hero.png'));
 await cp(join(root, 'docs', 'media', 'kynflow-icon.png'), join(target, 'kynflow-icon.png'));
 console.log('site assets copied');
+
+// The page embeds the real interface at demo/: build the static demo under that subpath.
+execFileSync(process.execPath, ['scripts/build-demo.mjs'], {
+  cwd: root,
+  stdio: 'inherit',
+  env: { ...process.env, DEMO_OUT: 'site/demo', PUBLIC_BASE: '/kynflow/demo/' },
+});

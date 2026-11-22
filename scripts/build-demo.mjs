@@ -4,7 +4,7 @@ import { cp, copyFile, readFile, readdir, stat, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { build } from 'vite';
 
-const OUT = 'dist-demo';
+const OUT = process.env.DEMO_OUT ?? 'dist-demo';
 const base = process.env.PUBLIC_BASE ?? '/kynflow/';
 
 process.env.VITE_DEMO = '1';

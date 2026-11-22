@@ -4,6 +4,7 @@ dist-demo
 release
 release-*/
 site/assets
+site/demo
 data
 scratch-out
 .env
