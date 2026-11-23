@@ -55,29 +55,29 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "^2.1.9",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "hono": "^4.13.14",
-    "image-size": "^2.0.4",
-    "lucide-react": "^1.66.0",
+    "hono": "^4.13.19",
+    "image-size": "^2.1.0",
+    "lucide-react": "^1.77.0",
     "nanoid": "^6.0.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "sharp": "0.35.5",
     "tsx": "^4.23.15",
-    "zustand": "^5.0.16"
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.2",
-    "concurrently": "^10.0.6",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
     "electron": "^39.1.0",
     "electron-builder": "^26.0.12",
-    "playwright-core": "^1.64.1",
+    "playwright-core": "^1.65.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.8"
   },
   "build": {
     "appId": "com.kynflow.app",
