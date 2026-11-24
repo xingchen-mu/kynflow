@@ -7,6 +7,8 @@ import { licenseLabel } from '../../shared/licenses.ts';
 import { list, t } from '../i18n.ts';
 import {
   type AgentPrompt,
+  type AgentTaskGraph,
+  type VisualCritique,
   type AgentTodo,
   type AssetInfo,
   type CanvasItem,
@@ -49,10 +51,22 @@ import { DIALOGUE_LUFS, KEYFRAME_TOLERANCE, MARK_COLORS, type Cut, type Tile, co
 import { editIssues, stabilityIssues } from './guards.ts';
 import { matchesCapability } from '../workflows/capability.ts';
 import { REASON_FIX, REASON_LABEL, REVIEW_REASONS, RETRY_LIMIT, retriesLeft } from './review.ts';
+import type { TaskGraphAction } from './task-graph.ts';
+import type { CritiqueRequest } from './runtime.ts';
+import type { WorkflowRank } from './router.ts';
 
 /** Per call: which board, and where the user was looking when they asked. */
 export interface ToolContext {
   projectId: string;
+  /** Internal harness operations are deliberately absent from external MCP calls. */
+  harness?: {
+    sessionId: string;
+    graph(): AgentTaskGraph;
+    updateGraph(action: TaskGraphAction): Promise<AgentTaskGraph>;
+    activateSkill(id: string): Promise<void>;
+    critique(request: CritiqueRequest, signal?: AbortSignal): Promise<VisualCritique>;
+  };
+  workflowRanks?: (pool: WorkflowLike[]) => Promise<WorkflowRank[]>;
   /** Board point at the center of the user's view; new unlinked items go there. */
   view?: { x: number; y: number };
   signal?: AbortSignal;
@@ -708,7 +722,7 @@ export function canvasTools(deps: CanvasDeps, writer: ResultWriter, host: ToolHo
         },
       },
       describe: () => t('可用的工作流'),
-      async run(args) {
+      async run(args, ctx) {
         const query = args ?? {};
         const caps = await deps.capabilities();
         const all = deps.workflows();
@@ -754,9 +768,13 @@ export function canvasTools(deps: CanvasDeps, writer: ResultWriter, host: ToolHo
           return { text: `${reason}。${blockedText}\n不要运行其它能力代替。`, summary: t('无匹配') };
         }
         const history = deps.tasks.list();
-        const lines = pool.map((w) => {
+        const ranks = await ctx.workflowRanks?.(pool);
+        const sorted = ranks ? ranks.map((r) => pool.find((w) => w.id === r.id)!) : pool;
+        const lines = sorted.map((w) => {
           const license = licenseLabel(`custom:${w.id}`, (zh) => zh);
-          return `- \`${w.id}\`「${w.name}」· ${capabilityLine(w, history)}${license ? ` · ${license}` : ''}${w.description ? ` · ${clip(w.description, 80)}` : ''}\n  输入：${inputsLine(w)}`;
+          const rank = ranks?.find((r) => r.id === w.id);
+          const route = rank ? ` · 路由分 ${rank.score}（执行 ${rank.samples} 次，用户质量反馈 ${rank.qualitySamples} 次${rank.quality === null ? '，质量未知' : ''}）` : '';
+          return `- \`${w.id}\`「${w.name}」· ${capabilityLine(w, history)}${route}${license ? ` · ${license}` : ''}${w.description ? ` · ${clip(w.description, 80)}` : ''}\n  输入：${inputsLine(w)}`;
         });
         return {
           text: `能用的工作流 ${pool.length} 个：\n${lines.join('\n')}${blockedText}`,

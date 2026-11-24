@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "required": ["id", "scene", "framing", "blocking", "action", "continuity"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^S[0-9]+$" },
+    "scene": { "type": "string" },
+    "framing": { "type": "string" },
+    "blocking": { "type": "string", "description": "人物左右、视线、遮挡与接触关系" },
+    "action": { "type": "string", "description": "镜头开始和结束时可见的动作" },
+    "continuity": { "type": "string", "description": "与前镜的承接" },
+    "dialogue": { "type": "string" }
+  },
+  "additionalProperties": false
+}
