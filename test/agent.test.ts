@@ -1199,3 +1199,58 @@ test('concurrent confirmations for the same graph task reserve one GPU submissio
   assert.equal(tasks.created.length, 1);
   assert.equal((await hub.taskGraph(board.id)).tasks[0].outputs.length, 1);
 });
+
+test('per-run traces preserve observable inputs and outputs and accept scoped human feedback after session switching', async () => {
+  const board = await projects.create('observable-run');
+  const { hub } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('write_note', { title: '分镜', content: 'S01 窗边，S02 门口。' })),
+    say('已整理两镜头分镜，等你确认。'),
+  ]);
+  await hub.send(board.id, { text: '整理两镜头分镜。api_key=private-value' });
+  await settled(hub, board.id);
+  const [trace] = await hub.runTraces(board.id);
+  assert.ok(trace);
+  assert.equal(trace.execution, 'completed');
+  assert.equal(trace.outcome.status, 'partial');
+  assert.equal(trace.outcome.basis, 'unconfirmed');
+  assert.doesNotMatch(trace.userIntent, /private-value/);
+  const call = trace.events.find((entry) => entry.type === 'tool_start' && entry.tool === 'write_note');
+  assert.deepEqual(call?.arguments, { title: '分镜', content: 'S01 窗边，S02 门口。' });
+  assert.ok(trace.usage.inputTokens > 0 && trace.usage.outputTokens > 0);
+  assert.match(trace.promptVersion, /^agent-v2-enhanced-/);
+  await hub.newSession(board.id);
+  const feedback = await hub.traceFeedback(board.id, trace.runId, { verdict: 'accepted', assetIds: trace.outputs, comment: '分镜符合要求', source: 'agent' });
+  assert.equal(feedback.outcome.basis, 'user');
+  assert.equal(feedback.outcome.status, 'success');
+  assert.equal(feedback.outcome.userFeedback?.source, 'user');
+  assert.equal((await hub.runTraces(board.id, trace.sessionId)).length, 1);
+  const other = await projects.create('unrelated-run');
+  await assert.rejects(() => hub.traceFeedback(other.id, trace.runId, { verdict: 'accepted' }));
+});
+
+test('messages accepted while the final trace is saving run before the session becomes idle', async () => {
+  const board = await projects.create('trace-finalization');
+  const { hub } = await hubWith(fakeTasks(), [say('第一段完成'), say('第二段完成')]);
+  await hub.view(board.id);
+  const store = (hub as unknown as { traceStore: { flush(): Promise<void> } }).traceStore;
+  const original = store.flush.bind(store);
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const saving = new Promise<void>((resolve) => { entered = resolve; });
+  let first = true;
+  store.flush = async () => {
+    await original();
+    if (first) { first = false; entered(); await gate; }
+  };
+  try {
+    await hub.send(board.id, { text: '第一段' });
+    await saving;
+    assert.equal((await hub.view(board.id)).running, true);
+    await hub.send(board.id, { text: '第二段' });
+  } finally { release(); }
+  const view = await settled(hub, board.id);
+  assert.deepEqual(view.entries.filter((entry) => entry.kind === 'assistant').map((entry) => entry.kind === 'assistant' && entry.text), ['第一段完成', '第二段完成']);
+  const { hub: restarted } = await hubWith(fakeTasks(), []);
+  assert.ok((await restarted.view(board.id)).entries.some((entry) => entry.kind === 'assistant' && entry.text === '第二段完成'));
+});

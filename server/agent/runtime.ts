@@ -1,5 +1,6 @@
 import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { nanoid } from 'nanoid';
 import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import {
@@ -34,7 +35,7 @@ import { type CanvasTool, type Json, type ToolContext, type ToolOutput, canvasTo
 import { writeJson } from './write.ts';
 import { type MemoryOp, MemoryStore, describeMemory, memoryBlock, memoryPromotions } from './memory.ts';
 import { createEmbedder } from './embeddings.ts';
-import type { AgentExperience, AgentTask, AgentTaskGraph, AgentTraceEvent, VisualCritique, VisualDimension } from '../../shared/types.ts';
+import type { AgentExperience, AgentTask, AgentTaskGraph, AgentTraceEvent, VisualCritique, VisualDimension, AgentHarnessProfile } from '../../shared/types.ts';
 import { emptyTaskGraph, changeTaskGraph, recoverTaskGraph, reconcileTaskGraph } from './task-graph.ts';
 import { SkillEngine, defaultSkillsRoot } from './skills.ts';
 import { ExperienceStore } from './experience.ts';
@@ -42,6 +43,20 @@ import { harnessTools } from './harness-tools.ts';
 import { CRITIC_PROMPT, parseCritique } from './visual-critic.ts';
 import { buildTaskContext } from './context.ts';
 import { rankWorkflows } from './router.ts';
+import { AgentTraceStore } from './trace/store.ts';
+import { AgentTraceRecorder } from './trace/recorder.ts';
+import { traceError, traceValue } from './trace/redact.ts';
+
+export interface AgentHubOptions {
+  models?: Models;
+  model?: string;
+  compactAt?: number;
+  clearAt?: number;
+  /** Evaluation ablation; normal app sessions use enhanced. */
+  profile?: AgentHarnessProfile;
+  generationEnvironment?: 'comfyui' | 'mock';
+  budget?: { toolCalls?: number; modelCalls?: number; tokens?: number; cost?: number; durationMs?: number; maxOutputTokens?: number };
+}
 
 export interface CritiqueRequest {
   objective: string;
@@ -533,6 +548,8 @@ export class AgentHub {
   private readonly dir = join(config.dataDir, 'agent');
   private readonly commandsFile = join(this.dir, 'commands.json');
   private memory = new MemoryStore(this.dir);
+  private readonly traceStore = new AgentTraceStore(join(this.dir, 'traces'));
+  private readonly traceRecorder = new AgentTraceRecorder(this.traceStore);
   private readonly skills = new SkillEngine(defaultSkillsRoot(this.dir));
   private readonly experience = new ExperienceStore(this.dir);
   private readonly sessions = new Map<string, Promise<Session>>();
@@ -550,14 +567,14 @@ export class AgentHub {
   private approvalMode: ApprovalMode = 'risky';
   private readonly tools: CanvasTool[];
   private readonly labels: Map<string, CanvasTool>;
-  private readonly opts: { models?: Models; model?: string; compactAt?: number; clearAt?: number };
+  private readonly opts: AgentHubOptions;
   private readonly settings?: SettingsStore;
 
   constructor(
     private readonly deps: CanvasDeps,
     private readonly emit: (e: AgentEventData) => void,
     /** For tests: another model collection and "provider/model", and when to clear old tool use and condense. */
-    opts: { models?: Models; model?: string; compactAt?: number; clearAt?: number } = {},
+    opts: AgentHubOptions = {},
     settings?: SettingsStore,
   ) {
     this.opts = opts;
@@ -565,7 +582,7 @@ export class AgentHub {
     this.watchFile = join(this.dir, 'watches.json');
     this.memory = new MemoryStore(this.dir, createEmbedder(settings?.agentConfig().embedding));
     this.models = opts.models ?? builtinModels();
-    this.tools = [...canvasTools(deps, new ResultWriter(deps)), ...harnessTools(deps, this.skills, this.experience)];
+    this.tools = [...canvasTools(deps, new ResultWriter(deps)), ...(opts.profile !== 'baseline' ? harnessTools(deps, this.skills, this.experience) : [])];
     this.labels = new Map(this.tools.map((t) => [t.name, t]));
     this.configureModel();
     deps.tasks.on('task', (t: Task) => this.onTask(t));
@@ -616,7 +633,7 @@ export class AgentHub {
       /* none */
     }
     // Batches that finished while the server was down.
-    setTimeout(() => this.checkWatches(), 3000);
+    setTimeout(() => this.checkWatches(), 3000).unref();
     if (!this.model) return;
     await this.refreshAuth();
   }
@@ -674,6 +691,27 @@ export class AgentHub {
   async trace(projectId: string) {
     const s = await this.session(projectId);
     return { version: 1, projectId, sessionId: s.sessionId, model: this.state.model, truncated: s.traceDropped > 0, dropped: s.traceDropped, events: structuredClone(s.trace) };
+  }
+
+  private async traceProject(projectId: string) {
+    if (!ID.test(projectId) || !(await this.deps.projects.get(projectId))) throw new RequestError(t('画布不存在'));
+  }
+
+  async runTraces(projectId: string, sessionId?: string) {
+    await this.traceProject(projectId);
+    return this.traceStore.list(projectId, sessionId);
+  }
+
+  async runTrace(projectId: string, runId: string) {
+    await this.traceProject(projectId);
+    if (!/^[\w-]{4,64}$/.test(runId)) throw new RequestError(t('请求格式错误'));
+    return this.traceStore.get(projectId, runId);
+  }
+
+  async traceFeedback(projectId: string, runId: string, feedback: unknown) {
+    await this.traceProject(projectId);
+    try { return await this.traceStore.feedback(projectId, runId, feedback); }
+    catch { throw new RequestError(t('请求格式错误')); }
   }
 
   async listSkills() { return this.skills.list(); }
@@ -762,8 +800,10 @@ export class AgentHub {
     if (!result || !details || !approval) throw new RequestError(t('找不到这个确认请求'));
     if (approval.state !== 'pending') throw new RequestError(t('这个请求已经处理过了'));
     const tool = this.labels.get(result.toolName);
+    const ownerRun = s.trace.find((event) => event.type === 'tool_start' && event.callId === id)?.runId;
     const show = () => this.emit({ projectId, entry: this.resultEntry(id, result.toolName, result, Date.now()) });
     if (!ok) {
+      this.recordTrace(s, { type: 'approval', tool: result.toolName, callId: id, ok: false, result: { decision: 'rejected' } }, ownerRun);
       approval.state = 'rejected';
       details.summary = t('没有确认');
       show();
@@ -792,8 +832,9 @@ export class AgentHub {
         : operation
           ? await tool.run(operation.args as Record<string, unknown>, this.context(s))
           : undefined;
-      const out = GENERATES.has(result.toolName) ? await this.submitGeneration(s, bound, perform) : await perform();
+      const out = GENERATES.has(result.toolName) ? await this.submitGeneration(s, bound, perform, ownerRun) : await perform();
       if (!out) throw new RequestError(t('这个请求已经不能执行了'));
+      this.recordTrace(s, { type: 'approval', tool: result.toolName, callId: id, ok: true, items: out.items, result: traceValue({ decision: 'accepted', summary: out.summary }) }, ownerRun);
       // The model now reads what was done, not the "waiting for the user" it got when the card was made.
       const changes = edited.length ? `用户改了 ${edited.length} 条提示词，按改过的生成：\n${edited.map((e) => `- ${e}`).join('\n')}\n` : '';
       result.content = [{ type: 'text', text: `用户已确认。${changes}${out.text}` }];
@@ -893,7 +934,7 @@ export class AgentHub {
 
   /** The instructions with the memory after them: set when a conversation opens and after condensing, so the cache holds. */
   private async promptFor(s: Pick<Session, 'projectId' | 'commercial' | 'lang'>): Promise<string> {
-    return `${systemPrompt(this.state.vision, s.commercial, s.lang)}\n\n${await this.skills.catalog()}\n\n${await this.memoryText(s.projectId)}`;
+    return `${systemPrompt(this.state.vision, s.commercial, s.lang, this.opts.profile !== 'baseline')}\n\n${this.opts.profile !== 'baseline' ? await this.skills.catalog() : ''}\n\n${await this.memoryText(s.projectId)}`;
   }
 
   /** The series this board is in, when any. */
@@ -1083,6 +1124,7 @@ export class AgentHub {
     index.current = { id: sessionId, title: meta.title, createdAt: meta.createdAt };
     await this.writeIndex(projectId, index);
     await this.save(s);
+    await this.traceStore.recover(projectId, sessionId);
     this.emit({ projectId, reset: true, sessionId });
     return this.listSessions(projectId);
   }
@@ -1334,7 +1376,10 @@ export class AgentHub {
         tools: this.tools.filter((def) => this.vision || !def.vision).map((def) => this.agentTool(def, s)),
         messages,
       },
-      streamFn: (model, context, options) => this.models.streamSimple(model, context, options),
+      streamFn: (model, context, options) => {
+        this.checkRunBudget(s);
+        return this.models.streamSimple(model, context, { ...options, ...(this.opts.budget?.maxOutputTokens ? { maxTokens: Math.min(options?.maxTokens ?? Infinity, this.opts.budget.maxOutputTokens) } : {}) });
+      },
       transformContext: async (messages) => {
         const filtered = await latestImagesOnly(messages);
         const context = await this.harnessContext(s);
@@ -1354,6 +1399,7 @@ export class AgentHub {
     });
     s.agent.subscribe((e) => this.onEvent(s, e));
     this.live.set(projectId, s);
+    await this.traceStore.recover(projectId, sessionId);
     if (s.taskGraph.revision !== saved.taskGraph?.revision && s.taskGraph.tasks.length) {
       this.recordTrace(s, { type: 'recovery', ok: false });
       await this.save(s);
@@ -1367,7 +1413,7 @@ export class AgentHub {
       projectId: s.projectId,
       view: s.view,
       interrupt: s.interrupt.signal,
-      workflowRanks: async (pool) => rankWorkflows(pool, this.deps.tasks.list(), await this.experience.list()),
+      ...(this.opts.profile !== 'baseline' ? { workflowRanks: async (pool: Parameters<typeof rankWorkflows>[0]) => rankWorkflows(pool, this.deps.tasks.list(), await this.experience.list()) } : {}),
       harness: {
         sessionId: s.sessionId,
         graph: () => structuredClone(s.taskGraph),
@@ -1524,6 +1570,7 @@ export class AgentHub {
       description: def.description,
       parameters: Type.Unsafe(parameters as unknown as TSchema),
       execute: async (_id, args, signal, onUpdate) => {
+        this.checkRunBudget(s);
         if (s.plan && !def.readOnly) throw new Error(t('现在是计划模式，不能执行「{label}」：先用 present_plan 把方案交给用户确认', { label: t(def.label) }));
         const bound = GENERATES.has(def.name) ? this.generationTask(s, (args as Record<string, unknown>).task_id) : undefined;
         const taskBinding = bound ? { id: bound.id, attempt: bound.attempts } : undefined;
@@ -1655,6 +1702,7 @@ export class AgentHub {
   }
 
   private async harnessContext(s: Session): Promise<string> {
+    if (this.opts.profile === 'baseline') return '';
     if (!s.taskGraph.tasks.length && !s.activeSkills.length) return '';
     const board = await readBoard(this.deps, s.projectId);
     const reconciled = reconcileTaskGraph(s.taskGraph, board.items);
@@ -1682,28 +1730,32 @@ export class AgentHub {
       ] }],
     }, { signal, maxTokens: 3000 });
     this.addUsage(s, reply);
-    this.recordTrace(s, { type: 'model', tool: 'visual_critic', tokens: paidTokens(reply.usage), cost: reply.usage?.cost?.total ?? 0, ok: !['error', 'aborted', 'length'].includes(reply.stopReason) });
+    this.recordTrace(s, { type: 'model', tool: 'visual_critic', ...this.traceUsage(reply), ok: !['error', 'aborted', 'length'].includes(reply.stopReason) });
     this.emit({ projectId: s.projectId, usage: s.usage });
     if (['error', 'aborted', 'length'].includes(reply.stopReason)) throw new Error('独立审查未完成，本次没有记录通过结论');
     return parseCritique(reply.content.map((c) => c.type === 'text' ? c.text : '').join(''), { ...request, model: this.state.model });
   }
 
-  private recordTrace(s: Session, event: Omit<AgentTraceEvent, 'id' | 'runId' | 'at'>) {
+  private recordTrace(s: Session, event: Omit<AgentTraceEvent, 'id' | 'runId' | 'at'>, runId = s.runId ?? 'recovery') {
     const at = Date.now();
     const start = event.type === 'tool_end' ? s.trace.findLast((e) => e.type === 'tool_start' && e.callId === event.callId) : undefined;
-    s.trace.push({ ...event, ...(start ? { durationMs: at - start.at } : {}), id: nanoid(12), runId: s.runId ?? 'recovery', at });
+    const entry = { ...event, ...(start ? { durationMs: at - start.at } : {}), id: nanoid(12), runId, at, model: this.state.model };
+    // Keep the existing flat export metadata-only; richer evidence lives in the explicit per-run API.
+    const { arguments: _arguments, result: _result, response: _response, ...legacy } = entry;
+    s.trace.push(legacy);
+    void this.traceRecorder.append(s.projectId, entry).catch((error) => console.error('agent: could not save run trace', error));
     if (s.trace.length > 2000) {
       s.traceDropped += s.trace.length - 2000;
       s.trace = s.trace.slice(-2000);
     }
   }
 
-  private async traceOutputs(s: Session, out: ToolOutput) {
+  private async traceOutputs(s: Session, out: ToolOutput, runId = s.runId) {
     if (!out.items?.length || out.approval) return;
     const board = await readBoard(this.deps, s.projectId);
     const items = board.items.filter((i) => out.items!.includes(i.id) && i.taskId);
     const taskIds = items.map((i) => i.taskId!);
-    if (taskIds.length) this.recordTrace(s, { type: 'generation_queued', items: items.map((i) => i.id), taskIds, retry: items.some((i) => i.retryOf) });
+    if (taskIds.length) this.recordTrace(s, { type: 'generation_queued', items: items.map((i) => i.id), taskIds, retry: items.some((i) => i.retryOf) }, runId);
     for (const task of this.deps.tasks.list(taskIds)) if (!ACTIVE.has(task.status)) this.traceGeneration(s, task);
   }
 
@@ -1718,13 +1770,13 @@ export class AgentHub {
   }
 
   /** A user approval may overlap a model tool call; reserve the task before any async submission. */
-  private async submitGeneration<T extends ToolOutput | undefined>(s: Session, task: AgentTask | undefined, perform: () => Promise<T>): Promise<T> {
+  private async submitGeneration<T extends ToolOutput | undefined>(s: Session, task: AgentTask | undefined, perform: () => Promise<T>, runId = s.runId): Promise<T> {
     if (task && s.generationClaims.has(task.id)) throw new Error(t('该任务正在提交生成，请等待，不能重复提交'));
     if (task) s.generationClaims.add(task.id);
     try {
       const out = await perform();
       if (out) {
-        await this.traceOutputs(s, out);
+        await this.traceOutputs(s, out, runId);
         if (task) await this.bindTaskOutputs(s, task.id, out);
       }
       return out;
@@ -1740,17 +1792,45 @@ export class AgentHub {
     if (s.trace.some((e) => e.type === 'generation_end' && e.taskId === task.id)) return;
     const queued = s.trace.find((e) => e.taskIds?.includes(task.id));
     this.recordTrace(s, { type: 'generation_end', taskId: task.id, ok: task.status === 'done',
-      gpuMs: task.startedAt && task.finishedAt ? Math.max(0, task.finishedAt - task.startedAt) : 0 });
-    // Completion may arrive in a later run: retain the run that submitted the GPU work.
-    if (queued) s.trace[s.trace.length - 1].runId = queued.runId;
+      ...(task.error ? { error: traceError(task.error) } : {}),
+      gpuMs: task.startedAt && task.finishedAt ? Math.max(0, task.finishedAt - task.startedAt) : 0 }, queued?.runId);
+  }
+
+  private traceUsage(message: AssistantMessage) {
+    return { tokens: paidTokens(message.usage), cost: message.usage?.cost?.total ?? 0,
+      inputTokens: message.usage?.input ?? 0, outputTokens: message.usage?.output ?? 0,
+      cacheReadTokens: message.usage?.cacheRead ?? 0, cacheWriteTokens: message.usage?.cacheWrite ?? 0 };
+  }
+
+  private checkRunBudget(s: Session) {
+    const budget = this.opts.budget;
+    if (!budget || !s.runId) return;
+    const events = s.trace.filter((event) => event.runId === s.runId);
+    const exceeded = events.filter((event) => event.type === 'tool_start').length > (budget.toolCalls ?? Infinity)
+      || events.filter((event) => event.type === 'model').length >= (budget.modelCalls ?? Infinity)
+      || events.reduce((sum, event) => sum + (event.inputTokens ?? 0) + (event.outputTokens ?? 0) + (event.cacheReadTokens ?? 0) + (event.cacheWriteTokens ?? 0), 0) >= (budget.tokens ?? Infinity)
+      || events.reduce((sum, event) => sum + (event.cost ?? 0), 0) >= (budget.cost ?? Infinity);
+    if (exceeded) { s.agent.abort(); throw new Error('Agent evaluation budget exceeded'); }
   }
 
   private async run(s: Session, first: AgentMessage[]) {
     // A new run is a new chance to repeat itself: only calls of this run count against the limit.
     s.calls = [];
+    const parentRunId = s.runId;
     s.runId = nanoid(12);
     s.runStartedAt = Date.now();
+    const firstText = first.filter((m): m is UserMessage => m.role === 'user').map((m) => textOf(m.content).replace(CONTEXT, '')).join('\n');
+    const automatic = EVENT.test(firstText);
+    const intent = automatic ? textOf((s.agent.state.messages.findLast((m) => m.role === 'user' && !EVENT.test(textOf(m.content))) as UserMessage | undefined)?.content ?? '') : firstText;
+    const profile = this.opts.profile ?? 'enhanced';
+    await this.traceRecorder.start({ runId: s.runId, projectId: s.projectId, sessionId: s.sessionId,
+      ...(automatic && parentRunId ? { parentRunId } : {}), source: automatic ? 'event' : 'user',
+      userIntent: intent.replace(CONTEXT, ''), model: this.state.model, profile,
+      promptVersion: `agent-v2-${profile}-${createHash('sha256').update(s.agent.state.systemPrompt).digest('hex').slice(0, 12)}`,
+      generationEnvironment: this.opts.generationEnvironment ?? 'comfyui', startedAt: s.runStartedAt,
+    }).catch((error) => console.error('agent: could not create run trace', error));
     this.recordTrace(s, { type: 'run_start' });
+    const timer = this.opts.budget?.durationMs ? setTimeout(() => s.agent.abort(), this.opts.budget.durationMs) : undefined;
     let ok = true;
     try {
       await this.manageContext(s);
@@ -1766,10 +1846,18 @@ export class AgentHub {
       console.error('agent run failed', err);
       this.emit({ projectId: s.projectId, entry: { kind: 'assistant', id: `e${Date.now()}`, text: '', error: (err as Error).message, at: Date.now() } });
     } finally {
-      s.running = false;
+      clearTimeout(timer);
       const aborted = s.agent.state.messages.findLast((m) => m.role === 'assistant') as AssistantMessage | undefined;
-      this.recordTrace(s, { type: 'run_end', ok: ok && aborted?.stopReason !== 'aborted' && aborted?.stopReason !== 'error', durationMs: Date.now() - s.runStartedAt! });
+      this.recordTrace(s, { type: 'run_end', ok: ok && aborted?.stopReason !== 'aborted' && aborted?.stopReason !== 'error', durationMs: Date.now() - s.runStartedAt!,
+        ...(aborted?.stopReason === 'aborted' ? { error: traceError('cancelled') } : aborted?.errorMessage ? { error: traceError(aborted.errorMessage) } : {}) });
+      await this.traceStore.flush().catch((error) => console.error('agent: could not flush run trace', error));
       await this.save(s).catch((err) => console.error('agent: could not save the conversation', err));
+      // Keep "running" true until both records are durable. A message arriving during this final save
+      // was accepted into pi's queues; start it before reporting the session idle.
+      const queued = s.agent.peekQueuedMessages();
+      s.agent.clearAllQueues();
+      if (queued.length) { s.done = this.run(s, queued); return; }
+      s.running = false;
       this.emit({ projectId: s.projectId, running: false, usage: s.usage });
     }
   }
@@ -1832,6 +1920,7 @@ export class AgentHub {
       .join('')
       .trim();
     this.addUsage(s, reply);
+    this.recordTrace(s, { type: 'model', tool: 'condense', ...this.traceUsage(reply), ok: !['aborted', 'error'].includes(reply.stopReason) });
     const summary = text.replace(MEMORY_UPDATES, '').trim();
     if (reply.stopReason === 'error' || !summary) {
       this.event(s, t('整理摘要没成功，先保持原样'));
@@ -2015,13 +2104,13 @@ export class AgentHub {
         if (e.message.role === 'assistant') {
           this.pushText(s, assistantEntry(e.message), true);
           this.addUsage(s, e.message);
-          this.recordTrace(s, { type: 'model', tokens: paidTokens(e.message.usage), cost: e.message.usage?.cost?.total ?? 0, ok: !['aborted', 'error'].includes(e.message.stopReason) });
+          this.recordTrace(s, { type: 'model', ...this.traceUsage(e.message), response: e.message.content.filter((c) => c.type === 'text').map((c) => c.text).join(''), ...(e.message.errorMessage ? { error: traceError(e.message.errorMessage) } : {}), ok: !['aborted', 'error'].includes(e.message.stopReason) });
           s.contextStale = false;
           this.emit({ projectId: s.projectId, usage: s.usage, context: this.contextOf(s) });
         }
         break;
       case 'tool_execution_start': {
-        this.recordTrace(s, { type: 'tool_start', tool: e.toolName, callId: e.toolCallId });
+        this.recordTrace(s, { type: 'tool_start', tool: e.toolName, callId: e.toolCallId, arguments: traceValue(e.args) });
         if (QUIET.has(e.toolName)) break;
         const def = this.labels.get(e.toolName);
         emit({ kind: 'tool', id: e.toolCallId, tool: e.toolName, label: def ? t(def.label) : e.toolName, status: 'running', summary: def?.describe(e.args) ?? '', at: Date.now() });
@@ -2035,7 +2124,10 @@ export class AgentHub {
         break;
       }
       case 'tool_execution_end':
-        this.recordTrace(s, { type: 'tool_end', tool: e.toolName, callId: e.toolCallId, ok: !e.isError, items: (e.result?.details as ToolDetails | undefined)?.items });
+        this.recordTrace(s, { type: 'tool_end', tool: e.toolName, callId: e.toolCallId, ok: !e.isError,
+          result: traceValue({ summary: (e.result?.details as ToolDetails | undefined)?.summary, text: e.result?.content?.filter((c: TextContent | ImageContent) => c.type === 'text').map((c: TextContent) => c.text).join('\n'), images: e.result?.content?.filter((c: TextContent | ImageContent) => c.type === 'image').length, approval: (e.result?.details as ToolDetails | undefined)?.approval?.state }),
+          ...(e.isError ? { error: traceError(e.result?.content?.filter((c: TextContent | ImageContent) => c.type === 'text').map((c: TextContent) => c.text).join('\n') ?? 'Tool failed') } : {}),
+          items: (e.result?.details as ToolDetails | undefined)?.items });
         void this.save(s).catch((err) => console.error('agent: could not save tool trace', err));
         if (QUIET.has(e.toolName)) break;
         emit(this.resultEntry(e.toolCallId, e.toolName, { isError: e.isError, content: e.result?.content ?? [], details: e.result?.details }, Date.now()));
