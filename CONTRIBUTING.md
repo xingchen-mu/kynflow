@@ -64,6 +64,8 @@ test/                单元测试和使用临时数据目录的 HTTP 回归测�
 
 功能代码放进对应目录；通用 UI 才放进 `components/`。前后端都需要的纯函数放进 `shared/`，后端不要引用 `src/`。`routes/` 处理 HTTP 输入输出，通过显式参数使用业务服务；业务模块不要导入 `app.ts` 或 `index.ts`。
 
+Agent 的任务图、专业技能、独立视觉审查、经验反馈、路由和评估方式见 [Visual Agent Harness](docs/agent-harness.md)。`npm run eval:agent` 生成带固定用例预算的脚本化运行时评估报告，不需要模型 key 或 ComfyUI。
+
 本次目录划分只影响代码。画布仍保存到 `data/projects/<id>.json`，素材、任务、工作流等数据路径和 `DATA_DIR` 配置保持兼容，不需要迁移已有数据。
 
 ## 站点和静态演示

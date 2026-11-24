@@ -29,9 +29,9 @@ export interface VideoInfo {
   hasAudio: boolean;
 }
 
-export async function probe(path: string): Promise<VideoInfo> {
+export async function probe(path: string, signal?: AbortSignal): Promise<VideoInfo> {
   const json = JSON.parse(
-    (await exec('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height,r_frame_rate:format=duration', '-of', 'json', path])).toString(),
+    (await exec('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height,r_frame_rate:format=duration', '-of', 'json', path], signal)).toString(),
   ) as { streams: { codec_type: string; width?: number; height?: number; r_frame_rate?: string }[]; format: { duration?: string } };
   const video = json.streams.find((s) => s.codec_type === 'video');
   const [num, den] = (video?.r_frame_rate ?? '24/1').split('/').map(Number);
@@ -74,8 +74,8 @@ export function spansBetweenSilences(log: string, duration: number): { start: nu
 }
 
 /** One frame of a video as PNG. */
-export async function videoFrame(path: string, at: number): Promise<Buffer> {
-  return exec('ffmpeg', ['-v', 'error', '-ss', String(Math.max(0, at)), '-i', path, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-']);
+export async function videoFrame(path: string, at: number, signal?: AbortSignal): Promise<Buffer> {
+  return exec('ffmpeg', ['-v', 'error', '-ss', String(Math.max(0, at)), '-i', path, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], signal);
 }
 
 /** How far a clip's first frame may sit from its keyframe before the keyframe check fails. */

@@ -4,6 +4,9 @@ import { test } from 'node:test';
 import { GUIDES } from '../server/agent/guides.ts';
 import { systemPrompt } from '../server/agent/prompt.ts';
 import { type CanvasTool, canvasTools } from '../server/agent/tools.ts';
+import { harnessTools } from '../server/agent/harness-tools.ts';
+import { SkillEngine } from '../server/agent/skills.ts';
+import { ExperienceStore } from '../server/agent/experience.ts';
 import { setServerLang } from '../server/i18n.ts';
 
 type Deps = Parameters<typeof canvasTools>[0];
@@ -38,8 +41,9 @@ test('read_guide gives the whole guide, or one section of it', async () => {
 
 test('the guides and the system prompt only name tools and parameters that exist', () => {
   // H3 prompt fields, and the tags the runtime wraps messages in.
-  const known = new Set<string>(['integrated_multimodal_description', 'overall_soundscape', 'non_diegetic_music', 'subject_definitions', 'summary', 'retention_analysis', 'detailed_description', 'fully_preserved', 'partially_preserved', 'attribute_transfer', 'canvas_context', 'canvas_event']);
-  for (const t of tools as CanvasTool[]) {
+  const known = new Set<string>(['integrated_multimodal_description', 'overall_soundscape', 'non_diegetic_music', 'subject_definitions', 'summary', 'retention_analysis', 'detailed_description', 'fully_preserved', 'partially_preserved', 'attribute_transfer', 'canvas_context', 'canvas_event', 'harness_context']);
+  const internal = harnessTools({} as Deps, new SkillEngine('/unused'), new ExperienceStore('/unused'));
+  for (const t of [...tools, ...internal] as CanvasTool[]) {
     known.add(t.name);
     paramNames(t.parameters, known);
   }

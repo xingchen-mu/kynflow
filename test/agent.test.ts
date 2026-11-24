@@ -4,11 +4,12 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
+import { evaluateAgentTrace, type AgentEvaluationCase } from '../server/agent/evaluation.ts';
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'kynflow-agent-test-'));
 const { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } = await import('@earendil-works/pi-ai');
-const { AssetStore } = await import('../server/assets/store.ts');
+const { AssetStore, publicAsset } = await import('../server/assets/store.ts');
 const { ProjectStore } = await import('../server/projects/store.ts');
 const { AgentHub, clearOldToolUse, compactError, compactThreshold } = await import('../server/agent/runtime.ts');
 type Task = import('../shared/types.ts').Task;
@@ -101,6 +102,17 @@ async function savedConversation(projectId: string, ready: (text: string) => boo
 const say = (text: string, input = 100): AssistantMessage => ({
   ...fauxAssistantMessage(text),
   usage: { input, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: input + 20, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0.001 } },
+});
+
+const benchmarkCases = JSON.parse(readFileSync(new URL('./fixtures/agent-benchmarks.json', import.meta.url), 'utf8')).cases as AgentEvaluationCase[];
+const benchmarkResults: ReturnType<typeof evaluateAgentTrace>[] = [];
+async function recordBenchmark(id: string, hub: InstanceType<typeof AgentHub>, projectId: string) {
+  const result = evaluateAgentTrace(benchmarkCases.find((c) => c.id === id)!, (await hub.trace(projectId)).events, await hub.taskGraph(projectId));
+  benchmarkResults.push(result);
+  assert.deepEqual(result.failures, []);
+}
+after(() => {
+  if (process.env.AGENT_EVAL_REPORT) writeFileSync(process.env.AGENT_EVAL_REPORT, JSON.stringify(benchmarkResults, null, 2));
 });
 
 test('a new conversation keeps the old one in history, and opening it brings it back', async () => {
@@ -981,4 +993,209 @@ test('after switching to English, panel rows are in English and the model is tol
   } finally {
     setServerLang('zh');
   }
+});
+
+// Harness integration: scripted model decisions exercise real persistence and tool execution.
+const harnessPlan = {
+  objective: '先写剧本，再制作分镜',
+  tasks: [
+    { id: 'script', objective: '写完整剧本', dependencies: [], acceptanceCriteria: [{ id: 'body', description: '包含完整开头和结尾' }], maxAttempts: 2 },
+    { id: 'shots', objective: '制作分镜', dependencies: ['script'], acceptanceCriteria: [{ id: 'shots', description: '分镜覆盖剧本事件' }], maxAttempts: 2 },
+  ],
+};
+
+test('task graph execution persists acceptance, drives fresh inference context and follows session history', async () => {
+  const board = await projects.create('harness-session');
+  let sawFreshContext = false;
+  let sawSkill = false;
+  const { hub } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('read_skill', { id: 'storyboard' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan: harnessPlan })),
+    (context) => {
+      const text = JSON.stringify(context.messages);
+      sawFreshContext = text.includes('revision=1') && text.includes('script [ready]');
+      sawSkill = text.includes('先读剧本，给镜头稳定编号');
+      return fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'script' }));
+    },
+    fauxAssistantMessage(fauxToolCall('write_note', { title: '完整剧本', content: '开头：雨夜相遇。结尾：共同回家。' })),
+    async () => {
+      const output = (await projects.get(board.id))!.items.find((i) => i.name === '完整剧本')!;
+      return fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'script', outputs: [output.id] }));
+    },
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: 3, id: 'script', evidence: [{ criterionId: 'body', note: '已读到雨夜开头与共同回家的结尾' }] })),
+    say('剧本已完成，分镜已就绪'),
+    say('新对话'),
+  ]);
+  await hub.send(board.id, { text: '按方案写剧本并准备分镜' });
+  const first = await settled(hub, board.id);
+  assert.equal(sawFreshContext, true);
+  assert.equal(sawSkill, true);
+  assert.deepEqual(first.taskGraph?.tasks.map((t) => t.status), ['completed', 'ready']);
+  assert.ok(first.entries.every((e) => !('text' in e) || !e.text.includes('<harness_context>')), 'ephemeral context stays out of chat history');
+  const saved = await savedConversation(board.id, (text) => JSON.parse(text).taskGraph?.revision === 4);
+  assert.deepEqual(saved.activeSkills, ['storyboard']);
+  assert.equal(saved.taskGraph.tasks[0].evidence[0].criterionId, 'body');
+  const trace = await hub.trace(board.id);
+  assert.ok(trace.events.some((e) => e.type === 'tool_end' && e.tool === 'update_task_graph' && e.ok));
+  assert.ok(trace.events.some((e) => e.type === 'run_end' && e.ok));
+  assert.doesNotMatch(JSON.stringify(trace), /开头：雨夜相遇/);
+  await recordBenchmark('task-graph-sequence', hub, board.id);
+  await hub.newSession(board.id);
+  assert.equal((await hub.taskGraph(board.id)).tasks.length, 0);
+  await hub.send(board.id, { text: '新对话' });
+  await settled(hub, board.id);
+  await hub.openSession(board.id, first.sessionId);
+  assert.deepEqual((await hub.taskGraph(board.id)).tasks.map((t) => t.status), ['completed', 'ready']);
+});
+
+test('a server restart recovers interrupted graph work without submitting a second GPU task', async () => {
+  const board = await projects.create('harness-restart');
+  const tasks = fakeTasks();
+  const { hub } = await hubWith(tasks, [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan: harnessPlan })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'script' })),
+    say('任务开始'),
+  ]);
+  await hub.send(board.id, { text: '执行任务' });
+  await settled(hub, board.id);
+  const { hub: restarted } = await hubWith(fakeTasks(tasks.records), [say('先检查旧结果，再决定如何恢复')]);
+  const restored = await restarted.taskGraph(board.id);
+  assert.deepEqual(restored.tasks.map((t) => t.status), ['failed', 'blocked']);
+  assert.equal(restored.tasks[0].attempts, 1);
+  assert.equal(tasks.created.length, 0);
+  assert.ok((await restarted.trace(board.id)).events.some((e) => e.type === 'recovery'));
+  const saved = await savedConversation(board.id, (text) => JSON.parse(text).taskGraph?.tasks[0].status === 'failed');
+  assert.equal(saved.taskGraph.tasks[0].attempts, 1);
+  await recordBenchmark('interrupted-task-recovery', restarted, board.id);
+});
+
+test('independent visual critic sees images and criteria without creator dialogue and rejects a hard identity failure', async () => {
+  const sharp = (await import('sharp')).default;
+  const png = await sharp({ create: { width: 80, height: 80, channels: 3, background: '#a0a0a0' } }).png().toBuffer();
+  const refAsset = publicAsset(await assets.save(png, { filename: 'reference.png', mime: 'image/png' }));
+  const outAsset = publicAsset(await assets.save(png, { filename: 'result.png', mime: 'image/png' }));
+  const board = await projects.create('harness-critic');
+  await projects.patchItems(board.id, { upsert: [
+    { id: 'critic-ref', kind: 'image', asset: refAsset, x: 0, y: 0, w: 80, h: 80, createdAt: 1 },
+    { id: 'critic-out', kind: 'image', asset: outAsset, x: 100, y: 0, w: 80, h: 80, createdAt: 1 },
+  ] });
+  let isolated = false;
+  const { hub } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan: { objective: '人物关键帧', tasks: [
+      { id: 'shot', objective: '参考人物在门左侧', inputs: ['critic-ref'], dependencies: [], acceptanceCriteria: [{ id: 'same-face', description: '人物一致', dimension: 'identity', threshold: 80 }] },
+    ] } })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'shot' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'shot', outputs: ['critic-out'] })),
+    fauxAssistantMessage(fauxToolCall('visual_critic', { id: 'critic-out', task_id: 'shot' })),
+    (context) => {
+      const text = JSON.stringify(context.messages);
+      isolated = !text.includes('private-creator-dialogue') && text.includes('参考人物在门左侧') && text.includes('image');
+      return say(JSON.stringify({ scores: { instruction: { score: 95, evidence: '人物在左侧' }, identity: { score: 58, evidence: '参考短发，输出长发' }, quality: { score: 99, evidence: '图像清晰' } }, reason: 'subject_mismatch', diagnosis: '人物发型改变' }));
+    },
+    async () => fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: (await hub.taskGraph(board.id)).revision, id: 'shot', evidence: [{ criterionId: 'same-face', note: '自称通过' }] })),
+    say('人物不一致，需要保留构图并用参考图修复'),
+  ]);
+  await hub.send(board.id, { text: 'private-creator-dialogue，请检查人物关键帧' });
+  const view = await settled(hub, board.id);
+  assert.equal(isolated, true);
+  const item = (await projects.get(board.id))!.items.find((i) => i.id === 'critic-out')!;
+  assert.equal(item.critic?.verdict, 'fail');
+  assert.equal(item.critic?.scores.identity?.score, 58);
+  assert.match(item.critic!.repair, /参考图/);
+  assert.equal(view.taskGraph?.tasks[0].status, 'failed');
+  assert.ok(view.entries.some((e) => e.kind === 'tool' && e.tool === 'update_task_graph' && e.status === 'error'));
+  const trace = await hub.trace(board.id);
+  assert.equal(trace.events.filter((e) => e.type === 'model' && e.tool === 'visual_critic').length, 1);
+  await recordBenchmark('independent-identity-rejection', hub, board.id);
+});
+
+test('recorded experience cannot self-promote to user confirmation and survives a fresh hub', async () => {
+  const board = await projects.create('harness-experience');
+  await projects.patchItems(board.id, { upsert: [{ id: 'experience-note', kind: 'text', text: '已核对全部分镜', x: 0, y: 0, w: 100, h: 100, createdAt: 1 }] });
+  const { hub } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('record_experience', { task: '双人对话站位', strategy: '场景图加 mark_layout', outcome: 'success', itemIds: ['experience-note'], confirmation: 'user' })),
+    say('已记录执行经验'),
+  ]);
+  await hub.send(board.id, { text: '记下这次站位修复方法' });
+  await settled(hub, board.id);
+  const entries = await hub.experiences(board.id);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].confirmation, 'agent');
+  await recordBenchmark('procedural-memory-provenance', hub, board.id);
+  await hub.confirmExperience(board.id, entries[0].id, 'success');
+  const { hub: restarted } = await hubWith(fakeTasks(), [say('使用已确认方法')]);
+  assert.equal((await restarted.experiences(board.id))[0].confirmation, 'user');
+});
+
+test('generation is bound to a started graph task, links outputs automatically and refuses duplicate submission', async () => {
+  const board = await projects.create('harness-binding');
+  const tasks = fakeTasks();
+  const plan = { objective: '产品主视觉', tasks: [{ id: 'hero', objective: '生成产品主视觉', dependencies: [], acceptanceCriteria: [{ id: 'visible', description: '主体清晰' }] }] };
+  const { hub } = await hubWith(tasks, [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan })),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '产品主视觉' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'hero' })),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '产品主视觉', task_id: 'hero' })),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '再次生成产品主视觉', task_id: 'hero' })),
+    say('主视觉正在生成，等待结果后审查'),
+  ]);
+  await hub.send(board.id, { text: '先规划，再生成主视觉' });
+  const view = await settled(hub, board.id);
+  assert.equal(tasks.created.length, 1);
+  assert.equal(view.taskGraph?.tasks[0].status, 'reviewing');
+  assert.equal(view.taskGraph?.tasks[0].outputs.length, 1);
+  const calls = view.entries.filter((e) => e.kind === 'tool' && e.tool === 'generate_image');
+  assert.deepEqual(calls.map((e) => e.kind === 'tool' && e.status), ['error', 'done', 'error']);
+  const taskId = [...tasks.records.keys()][0];
+  tasks.finish(taskId);
+  await sleep(30);
+  const trace = await hub.trace(board.id);
+  assert.equal(trace.events.filter((e) => e.type === 'generation_queued').length, 1);
+  assert.equal(trace.events.filter((e) => e.type === 'generation_end' && e.ok && e.gpuMs! > 0).length, 1);
+});
+
+test('a confirmation card from an earlier task attempt cannot launch GPU work after replanning', async () => {
+  const board = await projects.create('harness-stale-card');
+  const tasks = fakeTasks();
+  const plan = { objective: '主视觉', tasks: [{ id: 'hero', objective: '主视觉', dependencies: [], acceptanceCriteria: [{ id: 'q', description: '清晰' }] }] };
+  const { hub } = await hubWith(tasks, [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'hero' })),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '主视觉', task_id: 'hero' })),
+    say('等待确认'),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'fail', revision: 2, id: 'hero', error: '用户调整方案' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'retry', revision: 3, id: 'hero' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 4, id: 'hero' })),
+    say('已开始第二次尝试'),
+  ], { approvalMode: 'prompts' });
+  await hub.send(board.id, { text: '生成主视觉' });
+  const first = await settled(hub, board.id);
+  const card = first.entries.find((e) => e.kind === 'tool' && e.tool === 'generate_image' && e.status === 'waiting');
+  assert.ok(card);
+  assert.equal(tasks.created.length, 0);
+  await hub.send(board.id, { text: '调整方案后重新开始' });
+  await settled(hub, board.id);
+  await assert.rejects(() => hub.approve(board.id, card.id, true), /较早的任务尝试/);
+  assert.equal(tasks.created.length, 0);
+});
+
+test('concurrent confirmations for the same graph task reserve one GPU submission', async () => {
+  const board = await projects.create('harness-concurrent-cards');
+  const tasks = fakeTasks();
+  const plan = { objective: '主视觉', tasks: [{ id: 'hero', objective: '主视觉', dependencies: [], acceptanceCriteria: [{ id: 'q', description: '清晰' }] }] };
+  const { hub } = await hubWith(tasks, [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'hero' })),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '主视觉方案一', task_id: 'hero' })),
+    fauxAssistantMessage(fauxToolCall('generate_image', { prompt: '主视觉方案二', task_id: 'hero' })),
+    say('等待确认'),
+  ], { approvalMode: 'prompts' });
+  await hub.send(board.id, { text: '生成主视觉' });
+  const view = await settled(hub, board.id);
+  const cards = view.entries.filter((e) => e.kind === 'tool' && e.tool === 'generate_image' && e.status === 'waiting');
+  assert.equal(cards.length, 2);
+  const results = await Promise.allSettled(cards.map((card) => hub.approve(board.id, card.id, true)));
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(tasks.created.length, 1);
+  assert.equal((await hub.taskGraph(board.id)).tasks[0].outputs.length, 1);
 });

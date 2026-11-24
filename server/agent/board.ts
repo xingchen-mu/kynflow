@@ -95,6 +95,7 @@ export function describeItem(deps: CanvasDeps, item: CanvasItem, promptChars = 8
   parts.push(state.done ? (state.media.width > 0 ? `${state.media.width}×${state.media.height}` : mediaKind) : state.text);
   const review = reviewLine(item);
   if (review) parts.push(review);
+  if (item.critic) parts.push(`独立审查${item.critic.verdict === 'pass' ? '通过' : '不通过'}：${clip(item.critic.diagnosis, 120)}`);
   const inputs = item.inputs ?? (item.sourceId ? [item.sourceId] : []);
   if (inputs.length) parts.push(`由 ${inputs.map((id) => `\`${id}\``).join(' ')} 生成`);
   if (item.promptId) parts.push(`提示词来自 \`${item.promptId}\``);

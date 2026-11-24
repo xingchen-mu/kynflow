@@ -462,6 +462,8 @@ export interface CanvasItem {
   group?: string;
   /** The assistant's check of the result; kept so later turns see what was wrong. */
   review?: ItemReview;
+  /** Independent visual assessment, separate from the orchestrator's review. */
+  critic?: VisualCritique;
   /** The item this one was made to replace (a retried result); bounds how many retries a result gets. */
   retryOf?: string;
   /**
@@ -800,6 +802,7 @@ export interface AgentView {
   context: AgentContext | null;
   /** The conversation the panel is showing. */
   sessionId: string;
+  taskGraph?: AgentTaskGraph;
 }
 
 /** One past conversation of a board, as the history list shows it. */
@@ -824,10 +827,97 @@ export interface AgentEventData {
   running?: boolean;
   usage?: AgentUsage;
   todos?: AgentTodo[];
+  taskGraph?: AgentTaskGraph;
   plan?: boolean;
   context?: AgentContext | null;
   /** The conversation was cleared or another one was opened. */
   reset?: boolean;
   /** With `reset`: the conversation now open. */
   sessionId?: string;
+}
+
+/** Execution dependencies; unrelated to canvas links or ComfyUI nodes. */
+export type AgentTaskStatus = 'pending' | 'ready' | 'running' | 'reviewing' | 'completed' | 'failed' | 'blocked';
+export type VisualDimension = 'instruction' | 'identity' | 'composition' | 'spatial' | 'style' | 'quality' | 'temporal' | 'text';
+export interface AgentAcceptanceCriterion {
+  id: string;
+  description: string;
+  /** A visual hard constraint must be checked by the independent critic. */
+  dimension?: VisualDimension;
+  threshold?: number;
+}
+export interface AgentTask {
+  id: string;
+  objective: string;
+  dependencies: string[];
+  /** Canvas item ids, scoped to this board. */
+  inputs: string[];
+  outputs: string[];
+  /** Invalidated outputs remain discoverable for retry_of and recovery. */
+  previousOutputs?: string[];
+  acceptanceCriteria: AgentAcceptanceCriterion[];
+  evidence: { criterionId: string; note: string }[];
+  status: AgentTaskStatus;
+  attempts: number;
+  maxAttempts: number;
+  error?: string;
+}
+export interface AgentTaskGraph {
+  version: 1;
+  revision: number;
+  objective: string;
+  tasks: AgentTask[];
+}
+export interface VisualCritique {
+  verdict: 'pass' | 'fail';
+  scores: Partial<Record<VisualDimension, { score: number; evidence: string }>>;
+  thresholds: Partial<Record<VisualDimension, number>>;
+  reason?: ReviewReason;
+  diagnosis: string;
+  repair: string;
+  /** References and criteria make an assessment's scope explicit. */
+  referenceIds: string[];
+  assetId?: string;
+  referenceAssets?: Record<string, string>;
+  objective: string;
+  model: string;
+  at: number;
+}
+export interface AgentSkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  source: 'builtin' | 'user';
+  tools: string[];
+}
+export interface AgentExperience {
+  id: string;
+  projectId: string;
+  sessionId: string;
+  task: string;
+  workflowId?: string;
+  failure?: ReviewReason;
+  strategy: string;
+  outcome: 'success' | 'failure';
+  /** Only a human-facing API can promote this to user confirmation. */
+  confirmation: 'agent' | 'user';
+  itemIds: string[];
+  at: number;
+}
+export interface AgentTraceEvent {
+  id: string;
+  runId: string;
+  at: number;
+  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end';
+  tool?: string;
+  callId?: string;
+  ok?: boolean;
+  durationMs?: number;
+  tokens?: number;
+  cost?: number;
+  items?: string[];
+  taskIds?: string[];
+  taskId?: string;
+  gpuMs?: number;
+  retry?: boolean;
 }

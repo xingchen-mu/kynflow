@@ -4,6 +4,18 @@ import type { Translation } from '../i18n.ts';
 // Terms: 画布 (the document) = board, the surface = canvas; 节点 on the board = item, in a ComfyUI graph = node.
 
 export const EN: Record<string, Translation> = {
+  '读取任务图': 'Read task graph',
+  '更新任务图': 'Update task graph',
+  '查看专业技能': 'List creative skills',
+  '读取专业技能': 'Read creative skill',
+  '检索创作经验': 'Search creative experiences',
+  '记录创作经验': 'Record creative experience',
+  '独立视觉审查': 'Independent visual critique',
+  '经验不存在': 'Experience not found',
+  '此确认卡属于较早的任务尝试，不能执行；请按最新任务图重新提交': 'This approval belongs to an earlier task attempt. Submit a new request using the current task graph.',
+  '先从任务图选择 ready 任务并 start，再传 task_id 提交一次生成；已有输出请等待或审查，不要重复提交': 'Start a ready task from the task graph, then submit generation once with task_id. Wait for or review existing outputs instead of submitting again.',
+  '该任务正在提交生成，请等待，不能重复提交': 'This task is submitting generation. Wait for it to finish instead of submitting again.',
+  '任务上游已失效，先取消当前工作并重新规划': 'An upstream task is no longer valid. Cancel the current work and replan first.',
   // ---------------------------------------------------------------- canvas and items
   '加载画布失败：{message}': 'Could not load the board: {message}',
   '拖出一条线，在线的另一端生成新内容': 'Drag out a line to generate something new at its end',

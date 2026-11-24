@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "environment": {
+    "model": "faux/faux-1",
+    "piAgentCore": "1.4.0",
+    "piAI": "1.4.0",
+    "comfyUI": "none (scripted task queue)",
+    "gpu": "none",
+    "scope": "Deterministic harness regressions, not model reasoning or visual-quality measurements"
+  },
+  "cases": [
+    {
+      "id": "task-graph-sequence",
+      "requiredTools": [
+        "read_skill",
+        "update_task_graph",
+        "write_note"
+      ],
+      "forbiddenTools": [
+        "generate_image",
+        "generate_video",
+        "run_workflow"
+      ],
+      "expectedTaskStatuses": {
+        "script": "completed",
+        "shots": "ready"
+      },
+      "minCompletedTasks": 1,
+      "budget": {
+        "toolCalls": 8,
+        "tokens": 27000,
+        "cost": 1,
+        "gpuMs": 0,
+        "retries": 0
+      }
+    },
+    {
+      "id": "interrupted-task-recovery",
+      "expectedTaskStatuses": {
+        "script": "failed",
+        "shots": "blocked"
+      },
+      "minRecoveries": 1,
+      "budget": {
+        "toolCalls": 4,
+        "tokens": 22000,
+        "cost": 1,
+        "gpuMs": 0,
+        "retries": 0
+      }
+    },
+    {
+      "id": "independent-identity-rejection",
+      "requiredTools": [
+        "visual_critic"
+      ],
+      "expectedTaskStatuses": {
+        "shot": "failed"
+      },
+      "budget": {
+        "toolCalls": 6,
+        "tokens": 25000,
+        "cost": 1,
+        "gpuMs": 0,
+        "retries": 0
+      }
+    },
+    {
+      "id": "procedural-memory-provenance",
+      "requiredTools": [
+        "record_experience"
+      ],
+      "budget": {
+        "toolCalls": 2,
+        "tokens": 21000,
+        "cost": 1,
+        "gpuMs": 0,
+        "retries": 0
+      }
+    }
+  ]
+}

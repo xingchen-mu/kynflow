@@ -67,8 +67,11 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
       assert.deepEqual(await (await request(path)).json(), []);
     }
     assert.equal((await request('/api/agent/status')).status, 200);
+    const skills = await (await request('/api/agent/skills')).json();
+    assert.equal(skills.length, 8);
+    assert.ok(skills.some((s: { id: string }) => s.id === 'product-photography'));
     assert.equal(await statusWithHost('/api/settings', 'untrusted.example'), 403);
-    for (const path of ['/api/agent/status', '/mcp']) {
+    for (const path of ['/api/agent/status', '/api/agent/skills', '/api/agent/board00001/trace', '/api/agent/board00001/experiences', '/mcp']) {
       assert.equal(await statusWithHost(path, '192.0.2.1'), 403);
     }
     const mcp = await request('/mcp', 'POST', {
@@ -89,6 +92,16 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
     const saved = await (await request('/api/settings', 'PUT', { modelSource: 'hf-mirror', hfToken: 'hf_secret' })).json();
     assert.deepEqual([saved.settings.modelSource, saved.settings.hfTokenConfigured, JSON.stringify(saved).includes('hf_secret')], ['hf-mirror', true, false]);
     assert.equal((await request('/api/settings', 'PUT', { modelSource: 'custom', modelEndpoint: '' })).status, 400);
+  });
+
+  await t.test('procedural feedback is local-only, board-scoped and validated without a model key', async () => {
+    const project = await (await request('/api/projects', 'POST', { name: 'experience feedback' })).json() as Project;
+    assert.deepEqual(await (await request(`/api/agent/${project.id}/experiences`)).json(), []);
+    const path = `/api/agent/${project.id}/experiences/missing/confirm`;
+    assert.equal((await request(path, 'POST', { outcome: 'unknown' })).status, 400);
+    assert.equal((await request(path, 'POST', { outcome: 'success' })).status, 400);
+    assert.equal(await postStatusWithHost(path, '192.0.2.1', { outcome: 'success' }), 403);
+    await request(`/api/projects/${project.id}`, 'DELETE');
   });
 
   await t.test('project saves, conflicts, events and deletion use the original JSON layout', async () => {

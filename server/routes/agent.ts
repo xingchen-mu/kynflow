@@ -16,8 +16,17 @@ export function registerAgentRoutes(app: Hono, { agent, projects, series }: Pick
   app.get('/api/agent/extensions', (c) => c.json(detectExtensions()));
   // Before /api/agent/:projectId, which would take "commands" for a board id.
   app.get('/api/agent/commands', async (c) => c.json(await agent.commands()));
+  app.get('/api/agent/skills', async (c) => c.json(await agent.listSkills()));
   app.put('/api/agent/commands', async (c) => c.json(await agent.saveCommands(await c.req.json())));
   app.get('/api/agent/:projectId', async (c) => c.json(await agent.view(c.req.param('projectId'))));
+  app.get('/api/agent/:projectId/task-graph', async (c) => c.json(await agent.taskGraph(c.req.param('projectId'))));
+  app.get('/api/agent/:projectId/trace', async (c) => c.json(await agent.trace(c.req.param('projectId'))));
+  app.get('/api/agent/:projectId/experiences', async (c) => c.json(await agent.experiences(c.req.param('projectId'))));
+  app.post('/api/agent/:projectId/experiences/:id/confirm', async (c) => {
+    const body = await c.req.json<{ outcome?: unknown }>();
+    if (body.outcome !== 'success' && body.outcome !== 'failure') throw new RequestError(t('请求格式错误'));
+    return c.json(await agent.confirmExperience(c.req.param('projectId'), c.req.param('id'), body.outcome));
+  });
   app.get('/api/agent/:projectId/sessions', async (c) => c.json(await agent.listSessions(c.req.param('projectId'))));
   app.post('/api/agent/:projectId/sessions', async (c) => c.json(await agent.newSession(c.req.param('projectId'))));
   app.post('/api/agent/:projectId/sessions/:sessionId/open', async (c) =>
