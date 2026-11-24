@@ -1,4 +1,5 @@
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import fs, { readdir, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentSkillInfo } from '../../shared/types.ts';
@@ -29,8 +30,32 @@ async function confinedPath(root: string, path: string): Promise<string> {
   const target = await realpath(resolve(base, path));
   const rel = relative(base, target);
   if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('技能资源必须在技能目录内');
-  if (!(await stat(target)).isFile()) throw new Error('技能资源必须是文件');
   return target;
+}
+
+/** Inspect and read the same open file, even if its pathname is replaced during the read. */
+async function readSkillFile(root: string, resource: string): Promise<string> {
+  const path = await confinedPath(root, resource);
+  const handle = await fs.open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    // Refuse a parent directory redirected between resolution and opening, before reading any content.
+    if (await realpath(path) !== path) throw new Error('技能资源路径已改变，请重试');
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error('技能资源必须是文件');
+    if (info.size > MAX_SKILL_BYTES) throw new Error('技能资源过大，请拆成较小的文件');
+    // A file can grow after fstat: read at most the limit plus one byte, never an unbounded readFile.
+    const buffer = Buffer.alloc(MAX_SKILL_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length > MAX_SKILL_BYTES) throw new Error('技能资源过大，请拆成较小的文件');
+    return buffer.toString('utf8', 0, length);
+  } finally {
+    await handle.close();
+  }
 }
 
 export class SkillEngine {
@@ -49,9 +74,7 @@ export class SkillEngine {
         if (skills.has(entry.name)) continue;
         const directory = join(root, entry.name);
         try {
-          const path = await confinedPath(directory, 'SKILL.md');
-          if ((await stat(path)).size > MAX_SKILL_BYTES) continue;
-          const parsed = parseSkill(await readFile(path, 'utf8'));
+          const parsed = parseSkill(await readSkillFile(directory, 'SKILL.md'));
           skills.set(entry.name, { id: entry.name, source, directory, ...parsed });
         } catch (err) { console.warn(`agent: skipped invalid skill ${entry.name}:`, (err as Error).message); }
       }
@@ -69,9 +92,7 @@ export class SkillEngine {
     if (!skill) throw new Error('技能不存在，用 list_skills 查看');
     if (!resource || resource === 'SKILL.md') return skill.instructions;
     if (!/^(references|schemas)\//.test(resource) || !/\.(md|json|txt)$/.test(resource)) throw new Error('只支持技能 references/ 或 schemas/ 下的文本资源');
-    const path = await confinedPath(skill.directory, resource);
-    if ((await stat(path)).size > MAX_SKILL_BYTES) throw new Error('技能资源过大，请拆成较小的文件');
-    return readFile(path, 'utf8');
+    return readSkillFile(skill.directory, resource);
   }
 
   async catalog(): Promise<string> {

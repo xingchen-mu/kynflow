@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { constants } from 'node:fs';
+import fs, { type FileHandle } from 'node:fs/promises';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import type { AgentExperience, AgentTaskGraph, CanvasItem, Task, WorkflowLike } from '../shared/types.ts';
 import { changeTaskGraph, emptyTaskGraph, reconcileTaskGraph, recoverTaskGraph, type TaskGraphAction, type TaskGraphPlan } from '../server/agent/task-graph.ts';
 import { SkillEngine } from '../server/agent/skills.ts';
@@ -120,6 +122,108 @@ test('skills discover user extensions and confine references including symlinks'
   await mkdir(join(root, 'product-photography'), { recursive: true });
   await writeFile(join(root, 'product-photography', 'SKILL.md'), markdown);
   assert.equal((await engine.list()).find((s) => s.id === 'product-photography')?.source, 'builtin', 'built-ins cannot be shadowed');
+});
+
+async function skillReadFixture(t: TestContext) {
+  const directory = await mkdtemp(join(tmpdir(), 'kynflow-skill-read-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const root = join(directory, 'skills');
+  const references = join(root, 'custom', 'references');
+  await mkdir(references, { recursive: true });
+  await writeFile(join(root, 'custom', 'SKILL.md'), '---\nname: Test\ndescription: File reading regression\n---\nRead the reference.');
+  await writeFile(join(references, 'lighting.md'), 'original reference');
+  const path = await fs.realpath(join(references, 'lighting.md'));
+  return { directory, root, references, path, engine: new SkillEngine(root, join(directory, 'no-builtins')) };
+}
+
+test('skill metadata and content use one descriptor when the pathname is replaced after inspection', async (t) => {
+  const { engine, path } = await skillReadFixture(t);
+  const open = fs.open;
+  let replaced = false;
+  let descriptor: FileHandle | undefined;
+  t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    const handle = await open(...args);
+    if (args[0] === path) {
+      descriptor = handle;
+      const metadata = await handle.stat();
+      t.mock.method(handle, 'stat', async () => {
+        await fs.rename(path, `${path}.old`);
+        await writeFile(path, 'replacement content');
+        replaced = true;
+        return metadata;
+      });
+    }
+    return handle;
+  });
+  assert.equal(await engine.read('custom', 'references/lighting.md'), 'original reference');
+  assert.equal(replaced, true);
+  assert.equal(await fs.readFile(path, 'utf8'), 'replacement content');
+  await assert.rejects(() => descriptor!.read(Buffer.alloc(1), 0, 1, null), { code: 'EBADF' });
+});
+
+test('skill reads stay bounded when a file grows after fstat and close the descriptor on rejection', async (t) => {
+  const { engine, path } = await skillReadFixture(t);
+  const open = fs.open;
+  let totalRead = 0;
+  let descriptor: FileHandle | undefined;
+  t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    const handle = await open(...args);
+    if (args[0] === path) {
+      descriptor = handle;
+      const metadata = await handle.stat();
+      t.mock.method(handle, 'stat', async () => {
+        await fs.appendFile(path, Buffer.alloc(100_000, 'x'));
+        return metadata;
+      });
+      const read = handle.read.bind(handle);
+      t.mock.method(handle, 'read', async (buffer: Buffer, offset: number, length: number, position: number | null) => {
+        const result = await read(buffer, offset, length, position);
+        totalRead += result.bytesRead;
+        return result;
+      });
+    }
+    return handle;
+  });
+  await assert.rejects(() => engine.read('custom', 'references/lighting.md'), /过大/);
+  assert.equal(totalRead, 48_001);
+  await assert.rejects(() => descriptor!.read(Buffer.alloc(1), 0, 1, null), { code: 'EBADF' });
+});
+
+test('a skill file swapped for an outside symlink before opening is refused', async (t) => {
+  if (!constants.O_NOFOLLOW) return t.skip('O_NOFOLLOW is unavailable on this platform');
+  const { engine, directory, path } = await skillReadFixture(t);
+  const secret = join(directory, 'outside.txt');
+  await writeFile(secret, 'outside contents');
+  const open = fs.open;
+  t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    if (args[0] === path) {
+      assert.ok(Number(args[1]) & constants.O_NOFOLLOW);
+      await fs.rename(path, `${path}.old`);
+      await symlink(secret, path);
+    }
+    return open(...args);
+  });
+  await assert.rejects(() => engine.read('custom', 'references/lighting.md'), { code: 'ELOOP' });
+});
+
+test('a skill parent directory redirected before opening is refused and the opened file is closed', async (t) => {
+  const { engine, directory, references, path } = await skillReadFixture(t);
+  const outside = join(directory, 'outside');
+  await mkdir(outside);
+  await writeFile(join(outside, 'lighting.md'), 'outside contents');
+  const open = fs.open;
+  let descriptor: FileHandle | undefined;
+  t.mock.method(fs, 'open', async (...args: Parameters<typeof fs.open>) => {
+    if (args[0] === path) {
+      await fs.rename(references, `${references}.old`);
+      await symlink(outside, references);
+      descriptor = await open(...args);
+      return descriptor;
+    }
+    return open(...args);
+  });
+  await assert.rejects(() => engine.read('custom', 'references/lighting.md'), /路径已改变/);
+  await assert.rejects(() => descriptor!.read(Buffer.alloc(1), 0, 1, null), { code: 'EBADF' });
 });
 
 test('experience writes survive concurrency and restart, and confirmation is scoped to the owner board', async (t) => {
