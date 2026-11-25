@@ -74,7 +74,7 @@ export class ComfyClient {
   private async request(path: string, init: RequestInit = {}, timeoutMs = 60_000): Promise<Response> {
     let res: Response;
     try {
-      res = await fetch(this.url(path), { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      res = await fetch(this.url(path), { ...init, signal: AbortSignal.any([...(init.signal ? [init.signal] : []), AbortSignal.timeout(timeoutMs)]) });
     } catch (err) {
       throw new ComfyError(t('无法连接 ComfyUI ({baseUrl}): {message}', { baseUrl: this.baseUrl, message: (err as Error).message }));
     }
@@ -87,23 +87,24 @@ export class ComfyClient {
   }
 
   /** Uploads into ComfyUI's input folder; returns the value LoadImage expects. */
-  async upload(data: Uint8Array, filename: string, subfolder = 'canva'): Promise<string> {
+  async upload(data: Uint8Array, filename: string, subfolder = 'canva', signal?: AbortSignal): Promise<string> {
     const form = new FormData();
     form.append('image', new Blob([new Uint8Array(data)]), filename);
     form.append('subfolder', subfolder);
     form.append('type', 'input');
     form.append('overwrite', 'true');
     // The uplink to the server can be slow (~300 KB/s), so allow large files plenty of time.
-    const r = await this.json<{ name: string; subfolder?: string }>('/upload/image', { method: 'POST', body: form }, 300_000);
+    const r = await this.json<{ name: string; subfolder?: string }>('/upload/image', { method: 'POST', body: form, signal }, 300_000);
     return r.subfolder ? `${r.subfolder}/${r.name}` : r.name;
   }
 
   /** `promptId` must be a lowercase UUID; choosing it up front lets callers track the prompt before the reply. */
-  async queuePrompt(graph: Record<string, ApiNode>, promptId: string): Promise<{ prompt_id: string; number: number }> {
+  async queuePrompt(graph: Record<string, ApiNode>, promptId: string, signal?: AbortSignal): Promise<{ prompt_id: string; number: number }> {
     return this.json(
       '/prompt',
       {
         method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: graph, client_id: this.clientId, prompt_id: promptId }),
       },

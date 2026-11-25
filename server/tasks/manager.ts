@@ -1,16 +1,17 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import type { AssetInfo, CustomWorkflow, Task, TaskRequest } from '../../shared/types.ts';
 import { type AssetStore, type StoredAsset, mimeFor, publicAsset } from '../assets/store.ts';
-import { type ComfyClient, type ComfyEvent, INTERRUPTED, type QueueState, historyError, historyFiles } from '../comfy/client.ts';
+import { type ComfyClient, type ComfyEvent, ComfyError, INTERRUPTED, type QueueState, historyError, historyFiles } from '../comfy/client.ts';
 import { config } from '../config.ts';
 import { type BuiltWorkflow, type Stage, randomSeed } from '../workflows/graph.ts';
 import { fixModelPaths } from '../workflows/custom.ts';
 import { RequestError, buildWorkflow, requestAssets } from '../workflows/index.ts';
 import { t } from '../i18n.ts';
+import { writeJson } from '../persistence/json.ts';
 
 type ObjectInfo = Parameters<typeof fixModelPaths>[1];
 
@@ -54,6 +55,8 @@ export class TaskManager extends EventEmitter {
   private readonly file = join(config.dataDir, 'tasks.json');
   private saveTimer?: NodeJS.Timeout;
   private queueTimer?: NodeJS.Timeout;
+  private pollTimer?: NodeJS.Timeout;
+  private closed = false;
   /** When the websocket last delivered anything. */
   private lastWsAt = 0;
   /** The queue as the last poll saw it. */
@@ -73,6 +76,7 @@ export class TaskManager extends EventEmitter {
   }
 
   async init() {
+    if (this.closed) throw new Error('TaskManager is closed');
     try {
       const tasks = JSON.parse(await readFile(this.file, 'utf8')) as (Task & { stages?: Stage[]; outputNode?: string; outputNodes?: string[] })[];
       for (const job of tasks) {
@@ -84,6 +88,7 @@ export class TaskManager extends EventEmitter {
           done: new Set(),
           currentFrac: 0,
           lastEventAt: 0,
+          ...((task.submissionState === 'prepared' || task.submissionState === 'uncertain') ? { unconfirmedSince: task.submittedAt ?? task.createdAt } : {}),
         });
         if (task.promptId) this.byPrompt.set(task.promptId, task.id);
         else if (ACTIVE.has(task.status)) Object.assign(task, { status: 'error', error: t('提交过程中服务重启了，请重试'), stage: t('失败') });
@@ -91,7 +96,16 @@ export class TaskManager extends EventEmitter {
     } catch {
       /* first run */
     }
-    setInterval(() => void this.poll(), 4000);
+    clearInterval(this.pollTimer);
+    this.pollTimer = setInterval(() => void this.poll(), 4000);
+  }
+
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    clearInterval(this.pollTimer);
+    clearTimeout(this.queueTimer);
+    await this.flush();
   }
 
   list(ids?: string[]): Task[] {
@@ -104,7 +118,16 @@ export class TaskManager extends EventEmitter {
   }
 
   /** `id` may be chosen by the client so a placeholder can reference the task before this returns. */
-  async create(req: TaskRequest, id?: string): Promise<Task> {
+  async create(req: TaskRequest, id?: string, execution?: { signal?: AbortSignal; owner?: Task['agentOwner'] }): Promise<Task> {
+    if (this.closed) throw new Error('TaskManager is closed');
+    execution?.signal?.throwIfAborted();
+    if (execution?.owner) {
+      const previous = this.list().find((task) => task.agentOwner?.operationKey === execution.owner!.operationKey);
+      if (previous) {
+        if (JSON.stringify(previous.request) !== JSON.stringify(req)) throw new RequestError(t('任务尝试已经提交过不同参数，不能重复提交'));
+        return previous;
+      }
+    }
     if (id !== undefined && (!/^[\w-]{6,32}$/.test(id) || this.tracked.has(id))) throw new RequestError(t('任务 id 无效'));
     const seed = Number.isSafeInteger(req.seed) && req.seed! >= 0 ? req.seed! : randomSeed();
     const refs = requestAssets(req);
@@ -138,6 +161,7 @@ export class TaskManager extends EventEmitter {
       results: [],
       seed,
       createdAt: Date.now(),
+      ...(execution?.owner ? { agentOwner: { ...execution.owner } } : {}),
     };
     const job: Tracked = { task, stages: draft.stages, done: new Set(), currentFrac: 0, lastEventAt: Date.now() };
     this.tracked.set(task.id, job);
@@ -147,11 +171,11 @@ export class TaskManager extends EventEmitter {
     try {
       let promptId: string;
       try {
-        promptId = await this.submit(job, req, seed, imageAssets, videoAssets, maskAsset, false);
+        promptId = await this.submit(job, req, seed, imageAssets, videoAssets, maskAsset, false, execution?.signal);
       } catch (err) {
         // ComfyUI's input folder may have been cleaned: upload again and retry once.
-        if (!(err instanceof Error) || !/image|file|video/i.test(err.message) || !(imageAssets.length || videoAssets.length)) throw err;
-        promptId = await this.submit(job, req, seed, imageAssets, videoAssets, maskAsset, true);
+        if (execution?.signal?.aborted || !(err instanceof Error) || !/image|file|video/i.test(err.message) || !(imageAssets.length || videoAssets.length)) throw err;
+        promptId = await this.submit(job, req, seed, imageAssets, videoAssets, maskAsset, true, execution?.signal);
       }
       task.promptId = promptId;
       job.lastEventAt = Date.now();
@@ -167,7 +191,7 @@ export class TaskManager extends EventEmitter {
       }
       return task;
     } catch (err) {
-      this.finish(job, { status: 'error', error: friendlyError((err as Error).message), stage: t('失败') });
+      this.finish(job, { status: execution?.signal?.aborted ? 'cancelled' : 'error', error: friendlyError((err as Error).message), stage: execution?.signal?.aborted ? t('已取消') : t('失败') });
       throw err;
     }
   }
@@ -180,9 +204,10 @@ export class TaskManager extends EventEmitter {
     videoAssets: StoredAsset[],
     maskAsset: StoredAsset | undefined,
     force: boolean,
+    signal?: AbortSignal,
   ): Promise<string> {
     const upload = async (a: StoredAsset) => ({
-      comfyName: await this.ensureUploaded(a, force),
+      comfyName: await this.ensureUploaded(a, force, signal),
       width: a.width,
       height: a.height,
       hasAlpha: a.hasAlpha,
@@ -190,28 +215,43 @@ export class TaskManager extends EventEmitter {
     const images = await Promise.all(imageAssets.map(upload));
     const videos = await Promise.all(videoAssets.map(upload));
     const mask = maskAsset ? await upload(maskAsset) : undefined;
+    if (this.closed) throw new Error('TaskManager is closed');
+    signal?.throwIfAborted();
     const wf = buildWorkflow(req, { images, videos, mask }, seed, this.getWorkflow);
     // Imported workflows name models as their author had them; use what this server has.
     const info = req.op === 'custom' ? this.getObjectInfo() : undefined;
     if (info) fixModelPaths(wf.graph, info);
     job.graph = wf.graph;
+    job.task.workflowVersion = createHash('sha256').update(JSON.stringify(wf.graph)).digest('hex');
     job.outputNodes = wf.outputNodes;
     job.nodeCount = Object.keys(wf.graph).length;
     job.stages = wf.stages;
     // Registered before sending so events that beat the HTTP reply still find the task.
     const promptId = randomUUID();
     this.byPrompt.set(promptId, job.task.id);
+    job.task.promptId = promptId;
+    job.task.submittedAt = Date.now();
+    job.task.submissionState = 'prepared';
+    job.unconfirmedSince = job.task.submittedAt;
+    // A crash after this boundary may leave an accepted remote job. Never lose the lookup id.
+    await this.flush();
+    let sent = false;
     try {
+      signal?.throwIfAborted();
       const sentAt = Date.now();
-      await this.comfy.queuePrompt(wf.graph, promptId);
+      sent = true;
+      await this.comfy.queuePrompt(wf.graph, promptId, signal);
+      job.task.submissionState = 'accepted';
+      job.unconfirmedSince = undefined;
       // ComfyUI broadcasts the new queue length to every socket; checkQueue() makes sure ours heard it.
       if (this.comfy.online) this.silentSince ??= sentAt;
     } catch (err) {
       // ComfyUI's HTTP server can stall for a minute while it loads models from a slow disk.
       // A timed-out reply does not mean the prompt was rejected: keep the id and let poll() find out.
-      if (/timeout|aborted/i.test((err as Error).message)) {
-        job.unconfirmedSince = Date.now();
+      if (sent && ((err instanceof ComfyError && (err.status === undefined || err.status === 408 || err.status >= 500)) || /timeout|aborted|ECONNRESET|ECONNREFUSED|fetch failed/i.test((err as Error).message))) {
+        job.task.submissionState = 'uncertain';
         this.update(job, { stage: t('已提交，ComfyUI 响应较慢…') });
+        await this.flush();
         return promptId;
       }
       this.byPrompt.delete(promptId);
@@ -221,9 +261,10 @@ export class TaskManager extends EventEmitter {
   }
 
   /** Each asset is uploaded once; later tasks reuse the file already in ComfyUI's input folder. */
-  private async ensureUploaded(a: StoredAsset, force: boolean): Promise<string> {
+  private async ensureUploaded(a: StoredAsset, force: boolean, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted();
     if (a.comfyName && !force) return a.comfyName;
-    const name = await this.comfy.upload(await this.assets.read(a), a.file);
+    const name = await this.comfy.upload(await this.assets.read(a), a.file, 'canva', signal);
     this.assets.setComfyName(a.id, name);
     return name;
   }
@@ -249,6 +290,7 @@ export class TaskManager extends EventEmitter {
 
   /** Handles a ComfyUI websocket event. */
   onComfyEvent(e: ComfyEvent) {
+    if (this.closed) return;
     this.lastWsAt = Date.now();
     if (e.type === 'status') {
       this.refreshQueueSoon();
@@ -381,12 +423,14 @@ export class TaskManager extends EventEmitter {
   }
 
   private emitTask(job: Tracked) {
+    if (this.closed) return;
     this.emit('task', job.task);
     this.scheduleSave();
   }
 
   /** Fallback for missed websocket events: ask /history about quiet active tasks. */
   private async poll(force = false) {
+    if (this.closed) return;
     const now = Date.now();
     for (const job of this.tracked.values()) {
       if (!ACTIVE.has(job.task.status) || !job.task.promptId || job.finalizing) continue;
@@ -402,7 +446,10 @@ export class TaskManager extends EventEmitter {
           const q = await this.comfy.queue();
           const running = q.queue_running.some((item) => item[1] === job.task.promptId);
           const known = running || q.queue_pending.some((item) => item[1] === job.task.promptId);
-          if (known) job.unconfirmedSince = undefined;
+          if (known) {
+            job.unconfirmedSince = undefined;
+            job.task.submissionState = 'accepted';
+          }
           if (!known && job.unconfirmedSince && now - job.unconfirmedSince < UNCONFIRMED_GRACE) continue;
           if (!known) this.finish(job, { status: 'error', error: t('ComfyUI 中找不到这个任务（可能已被清空或重启）'), stage: t('失败') });
           // No events reach us for prompts queued under another client id; at least show it is running.
@@ -495,15 +542,13 @@ export class TaskManager extends EventEmitter {
   }
 
   private scheduleSave() {
+    if (this.closed) return;
     clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => void this.flush(), 500);
   }
 
   async flush() {
     clearTimeout(this.saveTimer);
-    const data = [...this.tracked.values()].map((job) => ({ ...job.task, stages: job.stages, outputNodes: job.outputNodes }));
-    const tmp = this.file + '.tmp';
-    await writeFile(tmp, JSON.stringify(data));
-    await rename(tmp, this.file);
+    await writeJson(this.file, () => [...this.tracked.values()].map((job) => ({ ...job.task, stages: job.stages, outputNodes: job.outputNodes })));
   }
 }

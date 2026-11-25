@@ -36,7 +36,7 @@ if (tracePath) {
   try {
     const reportFile = join(temporary, 'cases.json');
     regressionExit = await new Promise<number>((resolve, reject) => {
-      const child = spawn(process.execPath, ['--import', 'tsx', '--test', 'test/eval.test.ts', 'test/agent-harness.test.ts', 'test/agent.test.ts'], {
+      const child = spawn(process.execPath, ['--import', 'tsx', '--test', 'test/eval.test.ts', 'test/agent-harness.test.ts', 'test/agent.test.ts', 'test/agent-runtime-control.test.ts', 'test/task-recovery.test.ts', 'test/harness-foundation.test.ts', 'test/agent-trace.test.ts'], {
         stdio: 'inherit', env: { ...process.env, AGENT_EVAL_REPORT: reportFile },
       });
       child.on('error', reject);

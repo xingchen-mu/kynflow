@@ -66,7 +66,7 @@ const project = await projects.create('Real GPU agent evaluation');
 const tasks = new TaskManager(comfy, assets, (id) => workflows.get(id) ?? presets.get(id), capabilities.cachedObjectInfo);
 const budget = new GpuSubmissionBudget();
 const submit = tasks.create.bind(tasks);
-tasks.create = (request, id) => budget.submit(() => submit(fixedSeed === undefined ? request : { ...request, seed: fixedSeed }, id));
+tasks.create = (request, id, execution) => budget.submit(() => submit(fixedSeed === undefined ? request : { ...request, seed: fixedSeed }, id, execution));
 const hub = new AgentHub({ assets, projects, tasks, workflows: () => [...workflows.list(), ...presets.list()], capabilities: () => capabilities.get(), changed: () => {}, commercialOnly: () => Boolean(settings.value.commercialOnly) }, (event) => {
   if (event.entry?.kind === 'tool' && event.entry.status !== 'running') console.log(`tool ${event.entry.tool}: ${event.entry.status}`);
 }, { profile: 'enhanced', enhancement, generationEnvironment: 'comfyui', budget: { toolCalls: 18, modelCalls: 20, tokens: 240000, durationMs: 900000, maxOutputTokens: 2500 } }, settings);

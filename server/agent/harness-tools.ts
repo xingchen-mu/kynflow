@@ -21,6 +21,18 @@ const requireHarness = (ctx: ToolContext) => {
 
 export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences: ExperienceStore, enhancement: 'legacy' | 'targeted' = 'targeted'): CanvasTool[] {
   return [
+    tool<{ task_id: string }>({
+      name: 'validate_task', label: msg('验证任务'), readOnly: true,
+      description: '检查任务当前输出结构、文件、媒体规格、独立视觉证据及用户反馈，返回 pass/fail/unknown。unknown 需补充证据或询问用户；complete 会重新验证。',
+      parameters: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'] }, describe: () => t('验证任务'),
+      async run(args, ctx) { return { text: JSON.stringify(await requireHarness(ctx).validateTask(args.task_id)), summary: t('验证任务') }; },
+    }),
+    tool<Record<string, never>>({
+      name: 'read_tool_catalog', label: msg('读取工具能力'), readOnly: true,
+      description: '按需读取当前可用工具的能力、读写范围、审批和协作式超时元数据；不授予额外权限。',
+      parameters: { type: 'object', properties: {} }, describe: () => t('读取工具能力'),
+      async run(_args, ctx) { return { text: JSON.stringify(requireHarness(ctx).toolCatalog()), summary: t('读取工具能力') }; },
+    }),
     tool<Record<string, never>>({
       name: 'read_task_graph', label: msg('读取任务图'), readOnly: true,
       description: '读取本次对话的持久化执行任务图、revision、依赖、验收条件和尝试预算。它不同于画布连线与 ComfyUI 工作流。ready 是可调度任务。',
@@ -45,7 +57,7 @@ export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences:
               id: { type: 'string' }, objective: { type: 'string', maxLength: 1000 }, dependencies: strings, inputs: strings,
               maxAttempts: { type: 'integer', minimum: 1, maximum: 5 },
               acceptanceCriteria: { type: 'array', minItems: 1, maxItems: 16, items: { type: 'object', properties: {
-                id: { type: 'string' }, description: { type: 'string', maxLength: 500 }, dimension: { type: 'string', enum: VISUAL_DIMENSIONS }, threshold: { type: 'number', minimum: 0, maximum: 100 }, ...(enhancement !== 'legacy' ? { scope: { type: 'string', enum: ['whole_media', 'sampled_frames'] } } : {}),
+                id: { type: 'string' }, description: { type: 'string', maxLength: 500 }, dimension: { type: 'string', enum: VISUAL_DIMENSIONS }, threshold: { type: 'number', minimum: 0, maximum: 100 }, ...(enhancement !== 'legacy' ? { scope: { type: 'string', enum: ['whole_media', 'sampled_frames'] }, validator: { type: 'object', properties: { kind: { type: 'string', enum: ['asset', 'schema', 'media', 'user'] }, schema: { type: 'object' }, minWidth: { type: 'number' }, minHeight: { type: 'number' }, aspect: { type: 'number' }, minDuration: { type: 'number' }, maxDuration: { type: 'number' } }, required: ['kind'] } } : {}),
               }, required: ['id', 'description'] } },
             }, required: ['id', 'objective', 'dependencies', 'acceptanceCriteria'] } },
           }, required: ['objective', 'tasks'] },

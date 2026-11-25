@@ -43,6 +43,10 @@ function checkCase(check: BenchmarkCheck, observation: BenchmarkObservation, eve
     const wrong = Object.entries(check.names).filter(([id, name]) => observation.after.find((item) => item.id === id)?.name !== name);
     return { passed: wrong.length === 0, detail: wrong.length ? `Names do not match: ${wrong.map(([id]) => id).join(', ')}` : 'Requested names match' };
   }
+  if (check.kind === 'media') {
+    const outputs = observation.tasks.flatMap((task) => task.results);
+    return { passed: outputs.length > 0 && outputs.every((asset) => (check.width === undefined || asset.width === check.width) && (check.height === undefined || asset.height === check.height) && (check.aspect === undefined || Math.abs(asset.width - asset.height * check.aspect) <= (check.maxPixelRounding ?? 1))), detail: `Output media must match ${JSON.stringify(check)}` };
+  }
   if (check.kind === 'recovery') {
     const first = observation.tasks[0];
     const next = observation.tasks[1];

@@ -1,5 +1,6 @@
 import type {
   AgentCommand,
+  AgentTaskGraph,
   AgentMemories,
   AgentMemory,
   MemoryScope,
@@ -163,6 +164,7 @@ const realApi = {
   updateWorkflow: (id: string, workflow: WorkflowData) => request<CustomWorkflow>(`/api/workflows/${id}`, json('PUT', { workflow })),
   deleteWorkflow: (id: string) => request<{ ok: true }>(`/api/workflows/${id}`, { method: 'DELETE' }),
 
+  taskFeedback: (projectId: string, taskId: string, body: { sessionId: string; revision: number; criterionId: string; signature: string; verdict: 'pass' | 'fail'; note: string }) => request<AgentTaskGraph>(`/api/agent/${projectId}/tasks/${taskId}/feedback`, json('POST', body)),
   agentStatus: () => request<AgentStatus>('/api/agent/status'),
   agentExtensions: () => request<AgentExtension[]>('/api/agent/extensions'),
   agent: (projectId: string) => request<AgentView>(`/api/agent/${projectId}`),

@@ -10,6 +10,7 @@ export type BenchmarkCheck =
   | { kind: 'preserve'; ids: string[] }
   | { kind: 'rename'; names: Record<string, string> }
   | { kind: 'generation'; min: number; max: number; reference?: string; allowFailures?: boolean }
+  | { kind: 'media'; width?: number; height?: number; aspect?: number; maxPixelRounding?: number }
   | { kind: 'recovery'; firstModel: string; nextModel: string };
 export interface AgentBenchmarkCase {
   id: string;

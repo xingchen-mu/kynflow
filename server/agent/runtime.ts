@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { nanoid } from 'nanoid';
@@ -36,16 +36,24 @@ import { writeJson } from './write.ts';
 import { type MemoryOp, MemoryStore, describeMemory, memoryBlock, memoryPromotions } from './memory.ts';
 import { createEmbedder } from './embeddings.ts';
 import type { AgentExperience, AgentTask, AgentTaskGraph, AgentTraceEvent, VisualCritique, VisualDimension, AgentHarnessProfile, VisualCriterion } from '../../shared/types.ts';
-import { emptyTaskGraph, changeTaskGraph, recoverTaskGraph, reconcileTaskGraph } from './task-graph.ts';
+import { emptyTaskGraph, visualCriterionPass, changeTaskGraph, recoverTaskGraph, reconcileTaskGraph } from './task-graph.ts';
 import { SkillEngine, defaultSkillsRoot } from './skills.ts';
 import { ExperienceStore } from './experience.ts';
 import { harnessTools } from './harness-tools.ts';
 import { CRITIC_PROMPT, STRUCTURED_CRITIC_PROMPT, parseCritique, parseStructuredCritique } from './visual-critic.ts';
+import { ContextBuilder, contextBlock, estimateContextTokens } from './context-builder.ts';
+import { defaultValidators, validationSignature } from './verification.ts';
+import { toolMetadata, toolSignal } from './tool-policy.ts';
 import { buildTaskContext, buildFocusedContext } from './context.ts';
 import { rankWorkflows } from './router.ts';
 import { AgentTraceStore } from './trace/store.ts';
 import { AgentTraceRecorder } from './trace/recorder.ts';
 import { traceError, traceValue } from './trace/redact.ts';
+import { RunController, productionRunLimits, type RunLimits } from './runtime/run-controller.ts';
+import { AgentSubmissions } from './runtime/submissions.ts';
+import { AgentTaskEvents } from './runtime/events.ts';
+import { recoverOwnedOutputs } from './runtime/recovery.ts';
+import { ToolExecutionError, toolFailure, type ToolFailure } from './tool-errors.ts';
 
 export interface AgentHubOptions {
   models?: Models;
@@ -56,10 +64,13 @@ export interface AgentHubOptions {
   profile?: AgentHarnessProfile;
   /** Stage-one control retains the original critic/context; normal sessions use targeted. */
   enhancement?: 'legacy' | 'targeted';
+  /** Evaluation-only context ablation; production uses providers. */
+  contextMode?: 'focused' | 'providers';
   generationEnvironment?: 'comfyui' | 'mock';
   /** Runner-supplied environment contract; absent in normal application sessions. */
   evaluationInstructions?: string;
-  budget?: { toolCalls?: number; modelCalls?: number; tokens?: number; cost?: number; durationMs?: number; maxOutputTokens?: number };
+  budget?: RunLimits;
+  sessionGenerationLimit?: number;
 }
 
 export interface CritiqueRequest {
@@ -177,11 +188,16 @@ interface Session {
   todos: AgentTodo[];
   taskGraph: AgentTaskGraph;
   activeSkills: string[];
+  activeSkillsScope?: string;
   trace: AgentTraceEvent[];
   traceDropped: number;
   generationClaims: Set<string>;
   runId?: string;
   runStartedAt?: number;
+  controller?: RunController;
+  approvalControllers: Set<RunController>;
+  generationReservations: number;
+  toolFailures: Map<string, ToolFailure>;
   /** Plan mode: only reading and proposing until the user accepts a plan. */
   plan: boolean;
   /** The user switched plan mode off since the model last heard: the next message says so. */
@@ -197,12 +213,15 @@ interface Session {
 /** A batch the agent asked to hear about when it finishes (kept on disk, so a restart does not lose it). */
 interface Watch {
   projectId: string;
+  sessionId?: string;
+  runId?: string;
   what: string;
   items: { id: string; name?: string; taskId: string }[];
 }
 
 interface ToolDetails {
   summary?: string;
+  failure?: ToolFailure;
   items?: string[];
   taskBinding?: { id: string; attempt: number };
   /** `replaced`: a newer card of the same tool took its place before the user answered. */
@@ -558,6 +577,7 @@ export class AgentHub {
   private memory = new MemoryStore(this.dir);
   private readonly traceStore = new AgentTraceStore(join(this.dir, 'traces'));
   private readonly traceRecorder = new AgentTraceRecorder(this.traceStore);
+  private readonly taskEvents = new AgentTaskEvents(this.traceRecorder);
   private readonly skills = new SkillEngine(defaultSkillsRoot(this.dir));
   private readonly experience = new ExperienceStore(this.dir);
   private readonly sessions = new Map<string, Promise<Session>>();
@@ -575,8 +595,12 @@ export class AgentHub {
   private approvalMode: ApprovalMode = 'risky';
   private readonly tools: CanvasTool[];
   private readonly labels: Map<string, CanvasTool>;
+  private readonly resultWriter: ResultWriter;
   private readonly opts: AgentHubOptions;
   private readonly settings?: SettingsStore;
+  private readonly submissions = new AgentSubmissions();
+  private readonly runLimits: RunLimits;
+  private readonly sessionGenerationLimit: number;
 
   constructor(
     private readonly deps: CanvasDeps,
@@ -586,11 +610,16 @@ export class AgentHub {
     settings?: SettingsStore,
   ) {
     this.opts = opts;
+    this.runLimits = { ...productionRunLimits(), ...opts.budget };
+    this.sessionGenerationLimit = opts.sessionGenerationLimit ?? Number(process.env.AGENT_SESSION_MAX_GENERATIONS ?? 128);
+    if (!Number.isSafeInteger(this.sessionGenerationLimit) || this.sessionGenerationLimit < 0) throw new Error('Invalid AGENT_SESSION_MAX_GENERATIONS');
     this.settings = settings;
     this.watchFile = join(this.dir, 'watches.json');
     this.memory = new MemoryStore(this.dir, createEmbedder(settings?.agentConfig().embedding));
     this.models = opts.models ?? builtinModels();
-    this.tools = [...canvasTools(deps, new ResultWriter(deps)), ...(opts.profile !== 'baseline' ? harnessTools(deps, this.skills, this.experience, opts.enhancement) : [])];
+    const guarded = { ...deps, tasks: this.submissions.guard(deps.tasks) };
+    this.resultWriter = new ResultWriter(guarded);
+    this.tools = [...canvasTools(guarded, this.resultWriter), ...(opts.profile !== 'baseline' ? harnessTools(guarded, this.skills, this.experience, opts.enhancement) : [])];
     this.labels = new Map(this.tools.map((t) => [t.name, t]));
     this.configureModel();
     deps.tasks.on('task', (t: Task) => this.onTask(t));
@@ -660,9 +689,7 @@ export class AgentHub {
   /** The model settings changed: running conversations stop, and every conversation reopens with the new model. */
   async reconfigure() {
     for (const s of this.live.values()) {
-      s.agent.clearAllQueues();
-      s.agent.abort();
-      await s.done?.catch(() => {});
+      await this.stopExecution(s);
     }
     this.sessions.clear();
     this.live.clear();
@@ -689,11 +716,20 @@ export class AgentHub {
 
   async view(projectId: string): Promise<AgentView> {
     const s = await this.session(projectId);
-    return { entries: this.entries(s), running: s.running, usage: s.usage, todos: s.todos, taskGraph: s.taskGraph, plan: s.plan, context: this.contextOf(s), sessionId: s.sessionId };
+    return { entries: this.entries(s), running: s.running, usage: s.usage, todos: s.todos, taskGraph: this.reviewGraph(s, (await readBoard(this.deps, projectId)).items), plan: s.plan, context: this.contextOf(s), sessionId: s.sessionId,
+      execution: { runId: s.runId, state: s.controller?.state, sessionGenerationAttempts: s.generationReservations, sessionGenerationLimit: this.sessionGenerationLimit, ...(s.controller ? { runUsage: { ...s.controller.usage } } : {}) } };
   }
 
   async taskGraph(projectId: string): Promise<AgentTaskGraph> {
-    return structuredClone((await this.session(projectId)).taskGraph);
+    const s = await this.session(projectId);
+    return this.reviewGraph(s, (await readBoard(this.deps, projectId)).items);
+  }
+
+  private reviewGraph(s: Session, items: CanvasItem[]): AgentTaskGraph {
+    const graph = structuredClone(s.taskGraph);
+    const known = new Map(items.map((item) => [item.id, item]));
+    for (const task of graph.tasks) task.reviewSignatures = Object.fromEntries(task.acceptanceCriteria.filter((criterion) => criterion.validator?.kind === 'user').map((criterion) => [criterion.id, validationSignature(task, criterion, known)]));
+    return graph;
   }
 
   async trace(projectId: string) {
@@ -718,7 +754,11 @@ export class AgentHub {
 
   async traceFeedback(projectId: string, runId: string, feedback: unknown) {
     await this.traceProject(projectId);
-    try { return await this.traceStore.feedback(projectId, runId, feedback); }
+    try {
+      const trace = await this.traceStore.feedback(projectId, runId, feedback);
+      await this.experience.confirmRun(projectId, runId, trace.outcome.userFeedback!);
+      return trace;
+    }
     catch { throw new RequestError(t('请求格式错误')); }
   }
 
@@ -732,6 +772,39 @@ export class AgentHub {
   async confirmExperience(projectId: string, id: string, outcome: AgentExperience['outcome']) {
     if (!(await this.experiences(projectId)).some((e) => e.id === id)) throw new RequestError(t('经验不存在'));
     return this.experience.confirm(projectId, id, outcome);
+  }
+
+  private async validateTask(s: Session, id: string) {
+    const task = s.taskGraph.tasks.find((task) => task.id === id);
+    if (!task) throw new ToolExecutionError('INVALID_ARGUMENT', '任务不存在');
+    const board = await readBoard(this.deps, s.projectId);
+    const results = await defaultValidators((task, criterion, items) => visualCriterionPass(task, criterion, items, this.opts.enhancement === 'legacy')).validate(task, board.items, async (item) => {
+      if (item.kind === 'text' || item.kind === 'prompt') return Boolean(item.text?.trim());
+      const asset = item.asset && this.deps.assets.get(item.asset.id);
+      if (!asset) return false;
+      await access(this.deps.assets.path(asset));
+      return true;
+    });
+    this.recordTrace(s, { type: 'validation', taskId: task.id, ok: results.every((result) => result.verdict === 'pass'), result: traceValue(results) });
+    return results;
+  }
+
+  /** Local human endpoint only. Feedback cannot be supplied by an agent tool. */
+  async taskFeedback(projectId: string, taskId: string, input: unknown) {
+    const s = await this.session(projectId);
+    const body = input as { sessionId?: unknown; revision?: unknown; criterionId?: unknown; verdict?: unknown; note?: unknown; signature?: unknown };
+    if (!body || body.sessionId !== s.sessionId || body.revision !== s.taskGraph.revision || !['pass', 'fail'].includes(String(body.verdict)) || typeof body.note !== 'string' || !body.note.trim() || body.note.length > 1000) throw new RequestError(t('请求格式错误'));
+    const task = s.taskGraph.tasks.find((task) => task.id === taskId && ['reviewing', 'completed'].includes(task.status));
+    const criterion = task?.acceptanceCriteria.find((criterion) => criterion.id === body.criterionId && criterion.validator?.kind === 'user');
+    if (!task || !criterion) throw new RequestError(t('请求格式错误'));
+    const board = await readBoard(this.deps, projectId);
+    if (body.signature !== validationSignature(task, criterion, new Map(board.items.map((item) => [item.id, item])))) throw new RequestError(t('验收对象已改变，请刷新后重新检查'));
+    task.userValidation = [...(task.userValidation ?? []).filter((result) => result.criterionId !== criterion.id), { criterionId: criterion.id, validator: 'user', version: 'harness-v1', signature: validationSignature(task, criterion, new Map(board.items.map((item) => [item.id, item]))), verdict: body.verdict as 'pass' | 'fail', evidence: [body.note], at: Date.now() }];
+    s.taskGraph.revision++;
+    s.taskGraph = reconcileTaskGraph(s.taskGraph, board.items);
+    await this.save(s);
+    this.emit({ projectId, taskGraph: s.taskGraph });
+    return this.reviewGraph(s, board.items);
   }
 
   /** How full the context was at the last request, against the size at which it is condensed. */
@@ -796,9 +869,20 @@ export class AgentHub {
   async abort(projectId: string) {
     const s = await this.sessions.get(projectId);
     if (!s) return;
+    if (this.dropWatches(projectId)) this.event(s, t('已停止：已提交的任务会继续跑，跑完后助手不会再自动接着做'));
+    await this.stopExecution(s);
+    this.dropWatches(projectId);
+  }
+
+  private async stopExecution(s: Session) {
+    s.controller?.stop();
+    const approvals = [...s.approvalControllers];
+    for (const controller of approvals) controller.stop();
+    s.interrupt.abort();
     s.agent.clearAllQueues();
     s.agent.abort();
-    if (this.dropWatches(projectId)) this.event(s, t('已停止：已提交的任务会继续跑，跑完后助手不会再自动接着做'));
+    await Promise.allSettled([s.done, s.controller?.done, ...approvals.map((controller) => controller.done)]);
+    this.dropWatches(s.projectId);
   }
 
   /** The user's answer to work a tool held for approval; `prompts`: the card's prompts as the user left them. */
@@ -831,17 +915,23 @@ export class AgentHub {
     details.summary = t('已确认，正在提交…');
     show();
     let accepted = false;
+    let approvalCompleted = false;
+    const approvalController = new RunController(`approval-${id}`, this.runLimits);
+    s.approvalControllers.add(approvalController);
     try {
+      if (GENERATES.has(result.toolName)) await this.syncGraph(s);
       const bound = details.taskBinding ? this.generationTask(s, details.taskBinding.id) : undefined;
       if (details.taskBinding && bound?.attempts !== details.taskBinding.attempt) throw new Error(t('此确认卡属于较早的任务尝试，不能执行；请按最新任务图重新提交'));
       const payload = approval.payload as Json;
       const operation = payload && typeof payload === 'object' && !Array.isArray(payload) && payload[AGENT_APPROVAL] === true ? payload : undefined;
       const edited = approval.prompts && prompts ? editPrompts((operation?.args ?? payload) as Json, approval.prompts, prompts) : [];
-      const perform = async () => tool.approve
-        ? await tool.approve(payload, this.context(s))
+      const executionSignal = toolSignal(tool, [approvalController.signal]);
+      const execute = async () => tool.approve
+        ? await tool.approve(payload, this.context(s, { signal: executionSignal }))
         : operation
-          ? await tool.run(operation.args as Record<string, unknown>, this.context(s))
+          ? await tool.run(operation.args as Record<string, unknown>, this.context(s, { signal: executionSignal }))
           : undefined;
+      const perform = () => this.withSubmissionScope(s, bound, id, approvalController, ownerRun, execute, executionSignal);
       const out = GENERATES.has(result.toolName) ? await this.submitGeneration(s, bound, perform, ownerRun) : await perform();
       if (!out) throw new RequestError(t('这个请求已经不能执行了'));
       this.recordTrace(s, { type: 'approval', tool: result.toolName, callId: id, ok: true, items: out.items, result: traceValue({ decision: 'accepted', summary: out.summary }) }, ownerRun);
@@ -851,16 +941,22 @@ export class AgentHub {
       details.summary = out.summary;
       if (out.items?.length) details.items = out.items;
       accepted = result.toolName === 'present_plan';
+      approvalCompleted = true;
     } catch (err) {
       // Left pending so the user can try again (e.g. once ComfyUI is back).
       approval.state = 'pending';
       details.summary = t('提交失败：{message}', { message: (err as Error).message });
       throw err;
     } finally {
-      show();
-      await this.save(s);
+      try {
+        show();
+        await this.save(s);
+      } finally {
+        s.approvalControllers.delete(approvalController);
+        approvalController.finish(approvalCompleted);
+      }
     }
-    if (accepted) {
+    if (accepted && !approvalController.signal.aborted) {
       s.plan = false;
       s.planOff = false;
       this.emit({ projectId, plan: false });
@@ -1068,9 +1164,7 @@ export class AgentHub {
     const s = await this.session(projectId);
     if (s.running) throw new RequestError(t('助手还在工作，先停下再开新对话'));
     this.dropWatches(projectId);
-    s.agent.clearAllQueues();
-    s.agent.abort();
-    await s.done;
+    await this.stopExecution(s);
     await this.save(s);
     if (this.hasUserMessage(s)) await copyFile(this.file(projectId), this.archiveFile(projectId, s.sessionId)).catch(() => undefined);
     const index = await this.readIndex(projectId);
@@ -1095,9 +1189,7 @@ export class AgentHub {
     const meta = index.items.find((item) => item.id === sessionId);
     if (!meta) throw new RequestError(t('对话不存在'));
     this.dropWatches(projectId);
-    s.agent.clearAllQueues();
-    s.agent.abort();
-    await s.done;
+    await this.stopExecution(s);
     await this.save(s);
     if (this.hasUserMessage(s)) await copyFile(this.file(projectId), this.archiveFile(projectId, s.sessionId)).catch(() => undefined);
     let saved: {
@@ -1107,6 +1199,8 @@ export class AgentHub {
       todos?: AgentTodo[];
       taskGraph?: AgentTaskGraph;
       activeSkills?: string[];
+      activeSkillsScope?: string;
+      generationReservations?: number;
       trace?: AgentTraceEvent[];
       traceDropped?: number;
       plan?: boolean;
@@ -1127,10 +1221,13 @@ export class AgentHub {
     s.todos = saved.todos ?? [];
     s.taskGraph = recoverTaskGraph(saved.taskGraph);
     s.activeSkills = saved.activeSkills ?? [];
+    s.activeSkillsScope = saved.activeSkillsScope;
+    s.generationReservations = Math.max(0, saved.generationReservations ?? 0);
     s.trace = saved.trace ?? [];
     s.traceDropped = saved.traceDropped ?? 0;
     s.plan = saved.plan === true;
     s.checkpoints = saved.checkpoints ?? {};
+    await this.restoreOwnedTasks(s);
     index.current = { id: sessionId, title: meta.title, createdAt: meta.createdAt };
     await this.writeIndex(projectId, index);
     await this.save(s);
@@ -1184,8 +1281,7 @@ export class AgentHub {
   async clear(projectId: string) {
     const s = await this.session(projectId);
     this.dropWatches(projectId);
-    s.agent.clearAllQueues();
-    s.agent.abort();
+    await this.stopExecution(s);
     // After the run's own save, which would otherwise write the old conversation back.
     await s.done;
     s.agent.reset();
@@ -1211,9 +1307,14 @@ export class AgentHub {
     s.todos = [];
     s.taskGraph = emptyTaskGraph();
     s.activeSkills = [];
+    s.activeSkillsScope = undefined;
     s.trace = [];
     s.traceDropped = 0;
     s.generationClaims = new Set();
+    s.controller = undefined;
+    s.approvalControllers = new Set();
+    s.toolFailures = new Map();
+    s.generationReservations = 0;
     s.runId = undefined;
     s.plan = false;
     s.planOff = false;
@@ -1237,7 +1338,7 @@ export class AgentHub {
   async forget(projectId: string) {
     if (!ID.test(projectId)) return;
     const s = await this.sessions.get(projectId)?.catch(() => undefined);
-    s?.agent.abort();
+    if (s) await this.stopExecution(s);
     this.sessions.delete(projectId);
     this.live.delete(projectId);
     this.dropWatches(projectId);
@@ -1344,6 +1445,8 @@ export class AgentHub {
       todos?: AgentTodo[];
       taskGraph?: AgentTaskGraph;
       activeSkills?: string[];
+      activeSkillsScope?: string;
+      generationReservations?: number;
       trace?: AgentTraceEvent[];
       traceDropped?: number;
       plan?: boolean;
@@ -1372,12 +1475,17 @@ export class AgentHub {
       todos: saved.todos ?? [],
       taskGraph: recoverTaskGraph(saved.taskGraph),
       activeSkills: saved.activeSkills ?? [],
+      activeSkillsScope: saved.activeSkillsScope,
       trace: saved.trace ?? [],
       traceDropped: saved.traceDropped ?? 0,
       generationClaims: new Set<string>(),
+      approvalControllers: new Set<RunController>(),
+      toolFailures: new Map<string, ToolFailure>(),
+      generationReservations: Math.max(0, saved.generationReservations ?? 0),
       plan: saved.plan === true,
       checkpoints: saved.checkpoints ?? {},
     } as unknown as Session;
+    await this.restoreOwnedTasks(s);
     s.agent = new Agent({
       initialState: {
         systemPrompt: await this.promptFor(s),
@@ -1388,11 +1496,15 @@ export class AgentHub {
       },
       streamFn: (model, context, options) => {
         this.checkRunBudget(s);
-        return this.models.streamSimple(model, context, { ...options, ...(this.opts.budget?.maxOutputTokens ? { maxTokens: Math.min(options?.maxTokens ?? Infinity, this.opts.budget.maxOutputTokens) } : {}) });
+        s.controller?.reserve('modelCalls');
+        return this.models.streamSimple(model, context, { ...options, signal: AbortSignal.any([...(options?.signal ? [options.signal] : []), ...(s.controller ? [s.controller.signal] : [])]), ...(this.runLimits.maxOutputTokens ? { maxTokens: Math.min(options?.maxTokens ?? Infinity, this.runLimits.maxOutputTokens) } : {}) });
       },
       transformContext: async (messages) => {
-        const filtered = await latestImagesOnly(messages);
-        const context = await this.harnessContext(s);
+        const filtered = await latestImagesOnly(messages.map((message) => {
+          const failure = message.role === 'toolResult' ? (message.details as ToolDetails | undefined)?.failure : undefined;
+          return message.role === 'toolResult' && failure ? { ...message, content: [...message.content, { type: 'text' as const, text: JSON.stringify({ toolError: failure }) }] } : message;
+        }));
+        const context = await this.harnessContext(s, filtered);
         if (!context) return filtered;
         // Ephemeral per-inference state: never saved into conversation history or summaries.
         const lastUser = filtered.findLastIndex((m) => m.role === 'user');
@@ -1430,19 +1542,30 @@ export class AgentHub {
         graph: () => structuredClone(s.taskGraph),
         updateGraph: async (action) => {
           const board = await readBoard(this.deps, s.projectId);
+          if (action.action === 'start' && this.deps.tasks.list().some((task) => ACTIVE.has(task.status) && task.agentOwner?.projectId === s.projectId && task.agentOwner.sessionId === s.sessionId && task.agentOwner.graphTaskId === action.id)) throw new ToolExecutionError('SUBMISSION_UNCONFIRMED', '该任务仍有已提交的 GPU 工作；先检查或取消，不能另开尝试重复生成');
           const validOutputs = new Set(s.taskGraph.tasks.flatMap((t) => t.outputs));
           const expired = new Set(s.taskGraph.tasks.flatMap((t) => t.previousOutputs ?? []).filter((id) => !validOutputs.has(id)));
           if (action.action === 'start' && s.taskGraph.tasks.find((t) => t.id === action.id)?.inputs.some((id) => expired.has(id))) throw new Error('任务输入引用了已失效的旧输出，先 plan 更新为上游当前输出');
-          const next = changeTaskGraph(s.taskGraph, action, board.items, this.opts.enhancement === 'legacy');
+          const validation = action.action === 'complete' ? await this.validateTask(s, action.id) : undefined;
+          const next = changeTaskGraph(s.taskGraph, action, board.items, this.opts.enhancement === 'legacy', validation);
           s.taskGraph = next;
           await this.save(s);
           this.emit({ projectId: s.projectId, taskGraph: next });
+          if (action.action === 'complete' || action.action === 'fail') {
+            const task = next.tasks.find((task) => task.id === action.id)!;
+            await this.experience.candidate(s.projectId, s.sessionId, task, board.items, s.runId, this.state.model, s.trace.filter((event) => event.runId === s.runId && event.type === 'tool_end' && event.ok).map((event) => event.tool ?? ''), this.deps.tasks.list(board.items.filter((item) => task.outputs.includes(item.id) && item.taskId).map((item) => item.taskId!)).map((task) => task.workflowVersion).filter(Boolean).sort().join('/') || undefined);
+          }
           return structuredClone(next);
         },
         activateSkill: async (id) => {
-          s.activeSkills = [...s.activeSkills.filter((x) => x !== id), id].slice(-3);
+          await this.skills.compose([id], this.tools.filter((tool) => this.vision || !tool.vision).map((tool) => tool.name));
+          const scope = s.taskGraph.tasks.find((task) => ['running', 'reviewing', 'ready'].includes(task.status))?.id;
+          s.activeSkills = [...(s.activeSkillsScope === scope ? s.activeSkills : []).filter((x) => x !== id), id].slice(-3);
+          s.activeSkillsScope = scope;
           await this.save(s);
         },
+        validateTask: (id) => this.validateTask(s, id),
+        toolCatalog: () => this.tools.filter((tool) => this.vision || !tool.vision).map((tool) => ({ ...toolMetadata(tool), requiresApproval: Boolean(tool.approve) || (!tool.readOnly && this.approvalMode === 'always') || Boolean(tool.prompts && this.approvalMode === 'prompts') })),
         critique: (request, signal) => this.critique(s, request, signal),
       },
       notify: (what, items) => this.watch(s, what, items),
@@ -1475,7 +1598,7 @@ export class AgentHub {
   private watch(s: Session, what: string, items: CanvasItem[]) {
     const tracked = items.filter((i) => i.taskId).map((i) => ({ id: i.id, ...(i.name ? { name: i.name } : {}), taskId: i.taskId! }));
     if (!tracked.length) return;
-    this.watches.push({ projectId: s.projectId, what, items: tracked });
+    this.watches.push({ projectId: s.projectId, sessionId: s.sessionId, runId: s.runId, what, items: tracked });
     void this.saveWatches();
   }
 
@@ -1502,6 +1625,7 @@ export class AgentHub {
   }
 
   private onTask(t: Task) {
+    void this.taskEvents.observe(t).catch((error) => console.error('agent: could not record owned task event', error));
     if (ACTIVE.has(t.status)) return;
     for (const s of this.live.values()) if (s.trace.some((e) => e.taskIds?.includes(t.id))) {
       this.traceGeneration(s, t);
@@ -1528,6 +1652,8 @@ export class AgentHub {
 
   /** A watched batch is over: tell the agent what came out, so it carries on. */
   private finished(s: Session, w: Watch, tasks: Task[]) {
+    // A late completion belongs to its original conversation, never the board's newly opened one.
+    if (!w.sessionId || w.sessionId !== s.sessionId) return;
     const byId = new Map(tasks.map((t) => [t.id, t]));
     const label = (i: Watch['items'][number]) => `${i.name ? `${i.name} ` : ''}\`${i.id}\``;
     const ok = w.items.filter((i) => byId.get(i.taskId)?.status === 'done');
@@ -1543,17 +1669,17 @@ export class AgentHub {
       ok.length ? t('完成的节点：{list}', { list: ok.map(label).join(', ') }) : '',
       t('接着做下一步；需要用户决定的事就停下来问。'),
     ];
-    this.wake(s, lines.filter(Boolean).join('\n'));
+    this.wake(s, lines.filter(Boolean).join('\n'), w.runId);
   }
 
   /** Starts (or queues) a run on something the user did not type. */
-  private wake(s: Session, text: string) {
+  private wake(s: Session, text: string, sourceRunId?: string) {
     if (!this.state.ready) return;
     if (++s.autoRuns > MAX_AUTO_RUNS) {
       this.event(s, t('自动继续的次数到上限了，先停在这里；说一句「继续」让助手接着做'));
       return;
     }
-    const message: UserMessage = { role: 'user', content: `<canvas_event>${text}</canvas_event>`, timestamp: Date.now() };
+    const message: UserMessage & { sourceRunId?: string } = { role: 'user', content: `<canvas_event>${text}</canvas_event>`, timestamp: Date.now(), ...(sourceRunId ? { sourceRunId } : {}) };
     this.emit({ projectId: s.projectId, entry: userEntry(message) });
     if (s.running) {
       s.agent.followUp(message);
@@ -1582,6 +1708,8 @@ export class AgentHub {
       parameters: Type.Unsafe(parameters as unknown as TSchema),
       execute: async (_id, args, signal, onUpdate) => {
         this.checkRunBudget(s);
+        s.controller?.reserve('toolCalls');
+        if (GENERATES.has(def.name)) await this.syncGraph(s);
         if (s.plan && !def.readOnly) throw new Error(t('现在是计划模式，不能执行「{label}」：先用 present_plan 把方案交给用户确认', { label: t(def.label) }));
         const bound = GENERATES.has(def.name) ? this.generationTask(s, (args as Record<string, unknown>).task_id) : undefined;
         const taskBinding = bound ? { id: bound.id, attempt: bound.attempts } : undefined;
@@ -1636,12 +1764,15 @@ export class AgentHub {
         }
         let out: ToolOutput;
         try {
-          const perform = () => def.run(
+          const executionSignal = toolSignal(def, [signal, s.controller?.signal]);
+          const execute = () => def.run(
             args as Record<string, unknown>,
-            this.context(s, { signal, progress: (text) => onUpdate?.({ content: [{ type: 'text', text }], details: { summary: text } }) }),
+            this.context(s, { signal: executionSignal, progress: (text) => onUpdate?.({ content: [{ type: 'text', text }], details: { summary: text } }) }),
           );
+          const perform = () => this.withSubmissionScope(s, bound, _id, s.controller!, s.runId, execute, executionSignal);
           out = GENERATES.has(def.name) ? await this.submitGeneration(s, bound, perform) : await perform();
         } catch (err) {
+          s.toolFailures.set(_id, toolFailure(err));
           const message = err instanceof Error ? err.message : String(err);
           if (bound && bound.status === 'running') await this.context(s).harness!.updateGraph({ action: 'fail', revision: s.taskGraph.revision, id: bound.id, error: message.slice(0, 1000) || '生成工具执行失败' });
           // The whole error goes to the log; the conversation keeps only the part that says what broke.
@@ -1712,9 +1843,7 @@ export class AgentHub {
     return `<canvas_context selection="${selected.map((i) => i.id).join(',')}">\n${lines.join('\n')}\n</canvas_context>\n\n`;
   }
 
-  private async harnessContext(s: Session): Promise<string> {
-    if (this.opts.profile === 'baseline') return '';
-    if (!s.taskGraph.tasks.length && !s.activeSkills.length && (this.opts.enhancement === 'legacy' || !s.selection?.length)) return '';
+  private async syncGraph(s: Session) {
     const board = await readBoard(this.deps, s.projectId);
     const reconciled = reconcileTaskGraph(s.taskGraph, board.items, this.opts.enhancement === 'legacy');
     if (reconciled !== s.taskGraph) {
@@ -1722,21 +1851,50 @@ export class AgentHub {
       await this.save(s);
       this.emit({ projectId: s.projectId, taskGraph: s.taskGraph });
     }
+    return board;
+  }
+
+  private async harnessContext(s: Session, messages: AgentMessage[] = []): Promise<string> {
+    if (this.opts.profile === 'baseline') return '';
+    if (!s.taskGraph.tasks.length && !s.activeSkills.length && (this.opts.enhancement === 'legacy' || !s.selection?.length)) return '';
+    const board = await this.syncGraph(s);
     const active = s.taskGraph.tasks.find((t) => ['running', 'reviewing', 'ready'].includes(t.status));
+    const available = this.tools.filter((tool) => this.vision || !tool.vision).map((tool) => tool.name);
+    const matched = await this.skills.match(`${s.intent ?? ''} ${active?.objective ?? ''}`, available);
+    const composed = await this.skills.compose([...((!s.activeSkillsScope || s.activeSkillsScope === active?.id) ? s.activeSkills : []), ...matched.map((skill) => skill.id)], available);
     const [skills, experiences] = await Promise.all([
-      Promise.all(s.activeSkills.map(async (id) => ({ id, text: await this.skills.read(id).catch(() => '') }))),
-      active ? this.experience.search(active.objective, 3) : Promise.resolve([]),
+      Promise.resolve(composed.map((skill) => ({ id: `${skill.id}@${skill.version}`, text: skill.instructions }))),
+      active ? this.experience.search(active.objective, 3, { model: this.state.model }) : Promise.resolve([]),
     ]);
     if (this.opts.enhancement === 'legacy') return buildTaskContext(s.taskGraph, board.items, skills, experiences, (item) => describeItem(this.deps, item, 220));
     const context = buildFocusedContext({ graph: s.taskGraph, items: board.items, skills, experiences, selection: s.selection, intent: s.intent }, (item) => describeItem(this.deps, item, 220));
-    this.recordTrace(s, { type: 'context', result: { characters: context.characters, itemIds: context.itemIds, omittedItems: context.omittedItems, omittedSections: context.omittedSections, focusTaskId: context.focusTaskId ?? null } });
-    return context.text;
+    if (this.opts.contextMode === 'focused') {
+      this.recordTrace(s, { type: 'context', result: { mode: 'focused', characters: context.characters, omittedSections: context.omittedSections } });
+      return context.text;
+    }
+    const groups = new Map<string, typeof context.blocks>();
+    for (const block of context.blocks) {
+      const id = block.source.startsWith('专业技能') ? 'skills' : block.source.startsWith('相关历史经验') ? 'experience' : block.source.startsWith('相关素材') ? 'assets' : 'tasks';
+      groups.set(id, [...(groups.get(id) ?? []), block]);
+    }
+    const hits = await this.memory.search(s.projectId, { text: active?.objective ?? s.intent ?? '' }, await this.seriesOf(s.projectId));
+    groups.set('memory', hits.slice(0, 5).map((hit) => contextBlock(`memory:${hit.id}`, JSON.stringify(hit), false, 0.5)));
+    // System already contains pinned memory. History stays in Pi's messages; reserve it once.
+    const textMessages = messages.map((message) => JSON.stringify(message, (key, value) => key === 'data' ? undefined : value)).join('\n');
+    const images = messages.reduce((count, message) => count + (Array.isArray(message.content) ? message.content.filter((part) => part.type === 'image').length : 0), 0);
+    const built = await new ContextBuilder([...groups].map(([id, blocks]) => ({ id, priority: id === 'tasks' ? 100 : id === 'assets' ? 90 : 50, retrieve: async () => blocks }))).build({
+      query: s.intent ?? '', contextWindow: this.model?.contextWindow ?? 128000, maxTokens: 18000,
+      reserves: { system: estimateContextTokens(s.agent.state.systemPrompt), tools: estimateContextTokens(JSON.stringify(s.agent.state.tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters })))), history: estimateContextTokens(textMessages), images: images * 4096, output: this.runLimits.maxOutputTokens ?? Math.min(this.model?.maxTokens ?? 8192, 8192) },
+    });
+    this.recordTrace(s, { type: 'context', result: { characters: built.text.length, estimatedTokens: built.tokens, budget: built.budget, reserved: built.reserved, estimator: built.estimator, sources: built.blocks.map((block) => ({ source: block.source, version: block.version ?? '', required: block.required })), omittedSections: built.omitted, focusTaskId: context.focusTaskId ?? null, skills: composed.map((skill) => `${skill.id}@${skill.version}`) } });
+    return built.text;
   }
 
   /** Separate request with images and criteria only: no creator dialogue or executable tools. */
   private async critique(s: Session, request: CritiqueRequest, signal?: AbortSignal): Promise<VisualCritique> {
     if (!this.model || !this.vision) throw new Error('独立视觉审查需要支持图片输入的模型');
     this.checkRunBudget(s);
+    s.controller?.reserve('modelCalls');
     const structured = this.opts.enhancement !== 'legacy';
     if (structured && !request.criteria?.length) throw new Error('独立审查需要逐条验收标准');
     const reply = await this.models.completeSimple(this.model, {
@@ -1745,7 +1903,7 @@ export class AgentHub {
         { type: 'text', text: JSON.stringify({ objective: request.objective, ...(structured ? { criteria: request.criteria, coverage: request.coverage } : { thresholds: request.thresholds }), labels: request.labels }) },
         ...request.images.map((image): ImageContent => ({ type: 'image', ...image })),
       ] }],
-    }, { signal: structured ? AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(60000)]) : signal, maxTokens: structured ? 4000 : 3000 });
+    }, { signal: AbortSignal.any([...(signal ? [signal] : []), ...(s.controller ? [s.controller.signal] : []), ...(structured ? [AbortSignal.timeout(60000)] : [])]), maxTokens: structured ? 4000 : 3000 });
     this.addUsage(s, reply);
     this.recordTrace(s, { type: 'model', tool: 'visual_critic', ...this.traceUsage(reply), ok: !['error', 'aborted', 'length'].includes(reply.stopReason), ...(['error', 'aborted', 'length'].includes(reply.stopReason) ? { error: traceError(reply.errorMessage ?? `Critic ${reply.stopReason}`) } : {}) });
     this.emit({ projectId: s.projectId, usage: s.usage });
@@ -1781,10 +1939,44 @@ export class AgentHub {
     const unfinished = s.taskGraph.tasks.some((t) => t.status !== 'completed');
     if (taskId === undefined && !unfinished) return undefined;
     const task = typeof taskId === 'string' ? s.taskGraph.tasks.find((t) => t.id === taskId) : undefined;
+    if (task?.invalidated) throw new ToolExecutionError('STALE_STATE', '任务输入已经改变；先检查已有执行并局部重规划，不能使用旧任务继续提交');
     if (!task || task.status !== 'running' || task.outputs.length) throw new Error(t('先从任务图选择 ready 任务并 start，再传 task_id 提交一次生成；已有输出请等待或审查，不要重复提交'));
     if (s.generationClaims.has(task.id)) throw new Error(t('该任务正在提交生成，请等待，不能重复提交'));
     if (!task.dependencies.every((id) => s.taskGraph.tasks.find((t) => t.id === id)?.status === 'completed')) throw new Error(t('任务上游已失效，先取消当前工作并重新规划'));
     return task;
+  }
+
+  private async restoreOwnedTasks(s: Session) {
+    const board = await readBoard(this.deps, s.projectId);
+    const recovery = recoverOwnedOutputs(s.taskGraph, board.items, this.deps.tasks.list(), s.projectId, s.sessionId);
+    s.taskGraph = recovery.graph;
+    if (recovery.upsert.length) {
+      const updated = await this.deps.projects.patchItems(s.projectId, { upsert: recovery.upsert });
+      if (updated) this.deps.changed(updated);
+    }
+    this.resultWriter.track(s.projectId, recovery.tracked);
+    const index = await this.readIndex(s.projectId);
+    if (index.current.id !== s.sessionId) return;
+    const eligible = recovery.tracked.filter((item) => s.taskGraph.tasks.some((task) => task.status === 'reviewing' && !task.invalidated && task.outputs.includes(item.id)));
+    for (const item of eligible) {
+      const job = this.deps.tasks.list(item.taskId ? [item.taskId] : [])[0];
+      if (!job || !ACTIVE.has(job.status) || !job.agentOwner || this.watches.some((watch) => watch.sessionId === s.sessionId && watch.items.some((entry) => entry.taskId === job.id))) continue;
+      const source = await this.traceStore.get(s.projectId, job.agentOwner.runId).catch(() => undefined);
+      if (source?.execution === 'aborted') continue;
+      this.watches.push({ projectId: s.projectId, sessionId: s.sessionId, runId: job.agentOwner.runId, what: t('恢复的生成任务'), items: [{ id: item.id, taskId: job.id }] });
+      await this.saveWatches();
+    }
+  }
+
+  private withSubmissionScope<T>(s: Session, task: AgentTask | undefined, callId: string, controller: RunController, runId: string | undefined, perform: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.submissions.within({ controller, callId, signal,
+      owner: { projectId: s.projectId, sessionId: s.sessionId, runId: runId ?? controller.id, ...(task ? { graphTaskId: task.id, attempt: task.attempts } : {}) },
+      reserveSessionGeneration: async () => {
+        if (s.generationReservations >= this.sessionGenerationLimit) throw new ToolExecutionError('BUDGET_EXCEEDED', '本次会话的生成提交预算已用完；请报告已有结果并由用户调整方案');
+        s.generationReservations++;
+        await this.save(s);
+      },
+    }, perform);
   }
 
   /** A user approval may overlap a model tool call; reserve the task before any async submission. */
@@ -1821,34 +2013,31 @@ export class AgentHub {
   }
 
   private checkRunBudget(s: Session) {
-    const budget = this.opts.budget;
-    if (!budget || !s.runId) return;
-    const events = s.trace.filter((event) => event.runId === s.runId);
-    const exceeded = events.filter((event) => event.type === 'tool_start').length > (budget.toolCalls ?? Infinity)
-      || events.filter((event) => event.type === 'model').length >= (budget.modelCalls ?? Infinity)
-      || events.reduce((sum, event) => sum + (event.inputTokens ?? 0) + (event.outputTokens ?? 0) + (event.cacheReadTokens ?? 0) + (event.cacheWriteTokens ?? 0), 0) >= (budget.tokens ?? Infinity)
-      || events.reduce((sum, event) => sum + (event.cost ?? 0), 0) >= (budget.cost ?? Infinity);
-    if (exceeded) { s.agent.abort(); throw new Error('Agent evaluation budget exceeded'); }
+    try { s.controller?.check(); }
+    catch (error) { s.agent.abort(); throw error; }
   }
 
   private async run(s: Session, first: AgentMessage[]) {
     // A new run is a new chance to repeat itself: only calls of this run count against the limit.
     s.calls = [];
-    const parentRunId = s.runId;
+    const parentRunId = (first.find((message) => message.role === 'user' && (message as UserMessage & { sourceRunId?: string }).sourceRunId) as (UserMessage & { sourceRunId?: string }) | undefined)?.sourceRunId ?? s.runId;
     s.runId = nanoid(12);
+    const controller = new RunController(s.runId, this.runLimits);
+    s.controller = controller;
     s.runStartedAt = Date.now();
     const firstText = first.filter((m): m is UserMessage => m.role === 'user').map((m) => textOf(m.content).replace(CONTEXT, '')).join('\n');
-    const automatic = EVENT.test(firstText);
-    const intent = automatic ? textOf((s.agent.state.messages.findLast((m) => m.role === 'user' && !EVENT.test(textOf(m.content))) as UserMessage | undefined)?.content ?? '') : firstText;
+    const automatic = first.some((message) => message.role === 'user') && first.filter((message) => message.role === 'user').every((message) => EVENT.test(textOf((message as UserMessage).content)));
+    const origin = automatic && parentRunId ? await this.traceStore.get(s.projectId, parentRunId).catch(() => undefined) : undefined;
+    const intent = automatic ? origin?.userIntent ?? textOf((s.agent.state.messages.findLast((m) => m.role === 'user' && !EVENT.test(textOf(m.content))) as UserMessage | undefined)?.content ?? '') : firstText;
     const profile = this.opts.profile ?? 'enhanced';
     await this.traceRecorder.start({ runId: s.runId, projectId: s.projectId, sessionId: s.sessionId,
       ...(automatic && parentRunId ? { parentRunId } : {}), source: automatic ? 'event' : 'user',
       userIntent: intent.replace(CONTEXT, ''), model: this.state.model, profile, enhancement: this.opts.enhancement ?? 'targeted',
-      promptVersion: `agent-v3-${profile}-${this.opts.enhancement ?? 'targeted'}-${createHash('sha256').update(s.agent.state.systemPrompt).digest('hex').slice(0, 12)}`,
+      promptVersion: `agent-v4-${profile}-${this.opts.enhancement ?? 'targeted'}-${createHash('sha256').update(s.agent.state.systemPrompt).digest('hex').slice(0, 12)}`,
       generationEnvironment: this.opts.generationEnvironment ?? 'comfyui', startedAt: s.runStartedAt,
     }).catch((error) => console.error('agent: could not create run trace', error));
     this.recordTrace(s, { type: 'run_start' });
-    const timer = this.opts.budget?.durationMs ? setTimeout(() => s.agent.abort(), this.opts.budget.durationMs) : undefined;
+    controller.signal.addEventListener('abort', () => s.agent.abort(), { once: true });
     let ok = true;
     try {
       await this.manageContext(s);
@@ -1864,12 +2053,14 @@ export class AgentHub {
       console.error('agent run failed', err);
       this.emit({ projectId: s.projectId, entry: { kind: 'assistant', id: `e${Date.now()}`, text: '', error: (err as Error).message, at: Date.now() } });
     } finally {
-      clearTimeout(timer);
       const aborted = s.agent.state.messages.findLast((m) => m.role === 'assistant') as AssistantMessage | undefined;
+      const interruption = controller.signal.aborted ? toolFailure(controller.signal.reason) : undefined;
       this.recordTrace(s, { type: 'run_end', ok: ok && aborted?.stopReason !== 'aborted' && aborted?.stopReason !== 'error', durationMs: Date.now() - s.runStartedAt!,
-        ...(aborted?.stopReason === 'aborted' ? { error: traceError('cancelled') } : aborted?.errorMessage ? { error: traceError(aborted.errorMessage) } : {}) });
+        result: { consumption: { ...controller.usage } },
+        ...(interruption ? { error: { ...traceError(interruption.message), ...interruption } } : aborted?.stopReason === 'aborted' ? { error: traceError('cancelled') } : aborted?.errorMessage ? { error: traceError(aborted.errorMessage) } : {}) });
       await this.traceStore.flush().catch((error) => console.error('agent: could not flush run trace', error));
       await this.save(s).catch((err) => console.error('agent: could not save the conversation', err));
+      controller.finish(ok && aborted?.stopReason !== 'aborted' && aborted?.stopReason !== 'error');
       // Keep "running" true until both records are durable. A message arriving during this final save
       // was accepted into pi's queues; start it before reporting the session idle.
       const queued = s.agent.peekQueuedMessages();
@@ -1923,6 +2114,7 @@ export class AgentHub {
     // In characters: Chinese runs about a token each, so this fits even a small window.
     const transcript = transcriptText(old, Math.min(120_000, Math.floor((this.model.contextWindow || Infinity) * 0.6)));
     const memory = await this.memoryText(s.projectId);
+    s.controller?.reserve('modelCalls');
     const reply = await this.models.completeSimple(this.model, {
       systemPrompt: SUMMARY_PROMPT,
       messages: [
@@ -1932,7 +2124,8 @@ export class AgentHub {
           timestamp: Date.now(),
         },
       ],
-    });
+    }, { signal: s.controller?.signal });
+    s.controller?.signal.throwIfAborted();
     const text = reply.content
       .map((c) => (c.type === 'text' ? c.text : ''))
       .join('')
@@ -1976,11 +2169,14 @@ export class AgentHub {
     if (!this.state.ready) throw new RequestError(this.status.reason ?? t('画布助手还没有配置好'));
     if (s.running) throw new RequestError(t('助手正在工作，等它停下来再整理'));
     s.running = true;
+    const controller = new RunController(`condense-${nanoid(8)}`, this.runLimits);
+    s.controller = controller;
     this.emit({ projectId, running: true });
     let result: 'done' | 'short' | 'failed' = 'failed';
     try {
       result = await this.compact(s, 1, focus?.trim().slice(0, 500) ?? '');
     } finally {
+      controller.finish(result !== 'failed');
       const queued = s.agent.peekQueuedMessages();
       s.agent.clearAllQueues();
       if (queued.length) {
@@ -1995,6 +2191,7 @@ export class AgentHub {
   }
 
   private addUsage(s: Session, m: AssistantMessage) {
+    s.controller?.observe((m.usage?.input ?? 0) + (m.usage?.cacheRead ?? 0) + (m.usage?.cacheWrite ?? 0) + (m.usage?.output ?? 0), m.usage?.cost?.total ?? 0);
     s.usage = { tokens: s.usage.tokens + paidTokens(m.usage), cost: s.usage.cost + (m.usage?.cost?.total ?? 0) };
   }
 
@@ -2006,10 +2203,12 @@ export class AgentHub {
       version: 3,
       messages,
       usage: s.usage,
+      generationReservations: s.generationReservations,
       archived: s.archived,
       todos: s.todos,
       taskGraph: s.taskGraph,
       activeSkills: s.activeSkills,
+      activeSkillsScope: s.activeSkillsScope,
       trace: s.trace,
       traceDropped: s.traceDropped,
       plan: s.plan,
@@ -2141,15 +2340,19 @@ export class AgentHub {
         emit({ kind: 'tool', id: e.toolCallId, tool: e.toolName, label: def ? t(def.label) : e.toolName, status: 'running', summary, at: Date.now() });
         break;
       }
-      case 'tool_execution_end':
+      case 'tool_execution_end': {
+        const failure = e.isError ? s.toolFailures.get(e.toolCallId) ?? toolFailure(textOf(e.result.content)) : undefined;
+        s.toolFailures.delete(e.toolCallId);
+        if (failure) e.result.details = { ...(e.result.details as ToolDetails | undefined), failure };
         this.recordTrace(s, { type: 'tool_end', tool: e.toolName, callId: e.toolCallId, ok: !e.isError,
           result: traceValue({ summary: (e.result?.details as ToolDetails | undefined)?.summary, text: e.result?.content?.filter((c: TextContent | ImageContent) => c.type === 'text').map((c: TextContent) => c.text).join('\n'), images: e.result?.content?.filter((c: TextContent | ImageContent) => c.type === 'image').length, approval: (e.result?.details as ToolDetails | undefined)?.approval?.state }),
-          ...(e.isError ? { error: traceError(e.result?.content?.filter((c: TextContent | ImageContent) => c.type === 'text').map((c: TextContent) => c.text).join('\n') ?? 'Tool failed') } : {}),
+          ...(failure ? { error: { ...traceError(failure.message), ...failure } } : {}),
           items: (e.result?.details as ToolDetails | undefined)?.items });
         void this.save(s).catch((err) => console.error('agent: could not save tool trace', err));
         if (QUIET.has(e.toolName)) break;
         emit(this.resultEntry(e.toolCallId, e.toolName, { isError: e.isError, content: e.result?.content ?? [], details: e.result?.details }, Date.now()));
         break;
+      }
     }
   }
 }

@@ -96,6 +96,11 @@ export interface Task {
   request: TaskRequest;
   status: TaskStatus;
   promptId?: string;
+  /** Persisted before POST /prompt so recovery can look up the same submission. */
+  submissionState?: 'prepared' | 'accepted' | 'uncertain';
+  submittedAt?: number;
+  workflowVersion?: string;
+  agentOwner?: { projectId: string; sessionId: string; runId: string; operationKey: string; graphTaskId?: string; attempt?: number };
   /** 0..1 */
   progress: number;
   stage?: string;
@@ -792,6 +797,7 @@ export interface AgentUsage {
 }
 
 export interface AgentView {
+  execution?: { runId?: string; state?: 'running' | 'stopped' | 'completed' | 'failed'; sessionGenerationAttempts: number; sessionGenerationLimit: number; runUsage?: { toolCalls: number; modelCalls: number; tokens: number; cost: number; generations: number } };
   entries: AgentEntry[];
   running: boolean;
   usage: AgentUsage;
@@ -847,6 +853,19 @@ export interface AgentAcceptanceCriterion {
   threshold?: number;
   /** Whole-media temporal claims cannot be accepted from sparse sampled frames. */
   scope?: 'whole_media' | 'sampled_frames';
+  validator?: { kind: 'asset' } | { kind: 'schema'; schema: Record<string, unknown> }
+    | { kind: 'media'; minWidth?: number; minHeight?: number; aspect?: number; minDuration?: number; maxDuration?: number }
+    | { kind: 'user' };
+}
+export interface AgentValidationResult {
+  criterionId: string;
+  validator: string;
+  version: 'harness-v1';
+  signature: string;
+  verdict: 'pass' | 'fail' | 'unknown';
+  evidence: string[];
+  repairHint?: string;
+  at: number;
 }
 export interface AgentTask {
   id: string;
@@ -863,6 +882,13 @@ export interface AgentTask {
   attempts: number;
   maxAttempts: number;
   error?: string;
+  inputVersions?: Record<string, string>;
+  outputVersions?: Record<string, string>;
+  invalidated?: boolean;
+  validation?: AgentValidationResult[];
+  userValidation?: AgentValidationResult[];
+  /** Ephemeral signatures supplied to the human review UI. */
+  reviewSignatures?: Record<string, string>;
 }
 export interface AgentTaskGraph {
   version: 1;
@@ -924,6 +950,7 @@ export interface VisualRepairStep {
 }
 export interface AgentSkillInfo {
   id: string;
+  version?: string;
   name: string;
   description: string;
   source: 'builtin' | 'user';
@@ -942,12 +969,14 @@ export interface AgentExperience {
   confirmation: 'agent' | 'user';
   itemIds: string[];
   at: number;
+  trust?: 'agent-inferred' | 'machine-verified' | 'user-confirmed';
+  provenance?: { runId?: string; taskId: string; attempt: number; model: string; workflowVersion?: string; assetIds?: string[]; validation: AgentValidationResult[]; conditions: string };
 }
 export interface AgentTraceEvent {
   id: string;
   runId: string;
   at: number;
-  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end' | 'approval' | 'context';
+  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end' | 'approval' | 'context' | 'validation';
   tool?: string;
   callId?: string;
   ok?: boolean;
@@ -966,8 +995,16 @@ export interface AgentTraceEvent {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   model?: string;
-  error?: { category: string; message: string };
+  error?: { category: string; message: string; code?: ToolErrorCode; retryable?: boolean; recovery?: ToolFailure['recovery'] };
   response?: string;
+}
+
+export type ToolErrorCode = 'INVALID_ARGUMENT' | 'CAPABILITY_UNAVAILABLE' | 'MODEL_NOT_INSTALLED' | 'OUT_OF_MEMORY' | 'TIMEOUT' | 'PERMISSION_DENIED' | 'BUDGET_EXCEEDED' | 'EXECUTION_FAILED' | 'CANCELLED' | 'CONNECTION_UNAVAILABLE' | 'STALE_STATE' | 'SUBMISSION_UNCONFIRMED';
+export interface ToolFailure {
+  code: ToolErrorCode;
+  message: string;
+  retryable: boolean;
+  recovery: 'fix_arguments' | 'change_strategy' | 'check_existing' | 'wait_for_connection' | 'ask_user' | 'stop';
 }
 
 export type TraceValue = null | boolean | number | string | TraceValue[] | { [key: string]: TraceValue };
@@ -998,6 +1035,9 @@ export interface AgentRunTrace {
   execution: 'running' | 'completed' | 'failed' | 'aborted' | 'interrupted';
   events: AgentTraceEvent[];
   droppedEvents: number;
+  queuedTaskIds?: string[];
+  completedTaskIds?: string[];
+  retriedTaskIds?: string[];
   usage: {
     inputTokens: number;
     outputTokens: number;

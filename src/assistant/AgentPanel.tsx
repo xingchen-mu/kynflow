@@ -2,7 +2,7 @@ import { ArrowUp, Bell, Box, Bot, Brain, ChevronDown, CircleAlert, CircleCheck, 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { thumbUrl } from '../../shared/media';
-import type { AgentCommand, AgentContext, AgentEntry, AgentEventData, AgentExtension, AgentQuestion, AgentSessionInfo, AgentStatus, AgentTodo, AgentUsage, ApprovalMode } from '../../shared/types';
+import type { AgentCommand, AgentContext, AgentEntry, AgentEventData, AgentExtension, AgentQuestion, AgentSessionInfo, AgentStatus, AgentTodo, AgentUsage, AgentTaskGraph, ApprovalMode } from '../../shared/types';
 import { builtinCommand, expandCommand, parseCommand } from '../../shared/commands';
 import { ensureVisible, revealItems } from '../canvas/view';
 import { kindLabel } from '../canvas/items';
@@ -17,6 +17,7 @@ import { lang, t } from '../i18n';
 import { CommandsModal, SlashMenu, type SlashItem, slashItems } from './Commands';
 import { MemoryModal } from './Memory';
 import { QuestionCard } from './Question';
+import { TaskAcceptance } from './TaskAcceptance';
 import { Todos } from './Todos';
 
 const WIDTH_KEY = 'kynflow:agent-width';
@@ -55,6 +56,7 @@ interface AgentState {
   usage: AgentUsage;
   draft: string;
   todos: AgentTodo[];
+  taskGraph: AgentTaskGraph | null;
   /** Plan mode: the assistant reads and proposes until a plan is accepted. */
   plan: boolean;
   context: AgentContext | null;
@@ -81,6 +83,7 @@ export const useAgent = create<AgentState>(() => ({
   usage: { tokens: 0, cost: 0 },
   draft: '',
   todos: [],
+  taskGraph: null,
   plan: false,
   context: null,
   commands: [],
@@ -117,6 +120,7 @@ export async function refreshAgent() {
       running: view.running,
       usage: view.usage,
       todos: view.todos,
+      taskGraph: view.taskGraph ?? null,
       plan: view.plan,
       context: view.context,
       sessionId: view.sessionId,
@@ -130,6 +134,7 @@ export async function refreshAgent() {
       running: false,
       usage: { tokens: 0, cost: 0 },
       todos: [],
+      taskGraph: null,
       plan: false,
       context: null,
       sessionId: '',
@@ -166,6 +171,7 @@ export function onAgentEvent(e: AgentEventData) {
       running: false,
       usage: { tokens: 0, cost: 0 },
       todos: [],
+      taskGraph: null,
       plan: false,
       context: null,
       ...(e.sessionId ? { sessionId: e.sessionId } : {}),
@@ -177,6 +183,7 @@ export function onAgentEvent(e: AgentEventData) {
   if (e.running !== undefined) patch.running = e.running;
   if (e.usage) patch.usage = e.usage;
   if (e.todos) patch.todos = e.todos;
+  if (e.taskGraph) { patch.taskGraph = e.taskGraph; void refreshAgent(); }
   if (e.plan !== undefined) patch.plan = e.plan;
   if (e.context !== undefined) patch.context = e.context;
   const entry = e.entry;
@@ -767,7 +774,7 @@ function usageText(u: AgentUsage): string {
 }
 
 export function AgentPanel() {
-  const { open, source, status, entries, running, usage, draft, todos, plan, context, commands, condense, sessionId, sessions } = useAgent();
+  const { open, source, status, entries, running, usage, draft, todos, taskGraph, plan, context, commands, condense, sessionId, sessions } = useAgent();
   const projectId = useStore((s) => s.projectId);
   const selection = useStore((s) => s.selection);
   const log = useRef<HTMLDivElement>(null);
@@ -912,6 +919,7 @@ export function AgentPanel() {
       ) : (
         <>
           <Todos todos={todos} />
+          {projectId && <TaskAcceptance key={`${projectId}/${sessionId}`} graph={taskGraph} projectId={projectId} sessionId={sessionId} running={running} changed={(graph) => { if (useAgent.getState().sessionId === sessionId && useAgent.getState().projectId === projectId) useAgent.setState({ taskGraph: graph }); }} />}
 
       <div
         className="agent-log"

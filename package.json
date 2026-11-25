@@ -54,6 +54,7 @@
     "benchmark:agent:gpu": "node --import tsx scripts/benchmark-agent-gpu.ts",
     "compare:agent": "node --import tsx scripts/compare-agent-enhancements.ts",
     "smoke": "node scripts/smoke.mjs",
+    "smoke:agent:recovery": "node --import tsx scripts/smoke-harness-recovery.ts",
     "test:wf": "tsx scripts/test-workflow.ts",
     "build:presets": "tsx scripts/build-presets.ts"
   },

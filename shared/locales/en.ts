@@ -4,6 +4,15 @@ import type { Translation } from '../i18n.ts';
 // Terms: 画布 (the document) = board, the surface = canvas; 节点 on the board = item, in a ComfyUI graph = node.
 
 export const EN: Record<string, Translation> = {
+  '验收对象已改变，请刷新后重新检查': 'The result changed. Refresh and review it again.',
+  '用户验收': 'Your review',
+  '认可当前结果': 'Accept this result',
+  '需要修改': 'Needs changes',
+  '验收备注': 'Review note',
+  '验收备注（可选）': 'Review note (optional)',
+  '反馈已记录，发送消息继续': 'Feedback saved. Send a message to continue.',
+  '验证任务': 'Validate task',
+  '读取工具能力': 'Read tool capabilities',
   '读取任务图': 'Read task graph',
   '更新任务图': 'Update task graph',
   '查看专业技能': 'List creative skills',
@@ -1063,6 +1072,8 @@ export const EN: Record<string, Translation> = {
   '输入图片在 ComfyUI 上找不到了，请重试（{detail}）': 'ComfyUI cannot find the input image; please retry ({detail})',
   '提交过程中服务重启了，请重试': 'The server restarted during submission; please retry',
   '任务 id 无效': 'Invalid task id',
+  '恢复的生成任务': 'Recovered generation tasks',
+  '任务尝试已经提交过不同参数，不能重复提交': 'This task attempt was already submitted with different parameters and cannot be submitted again',
   '引用的素材不存在，可能已被删除': 'A referenced file does not exist; it may have been deleted',
   这里只能使用图片: 'Only images can be used here',
   这里只能使用视频: 'Only videos can be used here',
