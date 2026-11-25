@@ -1354,3 +1354,31 @@ test('formal validation and local user feedback bind to current session and arti
   await hub.taskFeedback(board.id, 'title', { sessionId: view.sessionId, revision: graph.revision, criterionId: 'taste', signature: graph.tasks[0].reviewSignatures?.taste, verdict: 'fail', note: '重新看过，标题不符合我的偏好' });
   assert.equal((await hub.taskGraph(board.id)).tasks[0].status, 'failed');
 });
+
+test('rewinding restores the skill task scope together with its saved activation', async () => {
+  const board = await projects.create('skill-rewind');
+  await projects.patchItems(board.id, { upsert: [{ id: 'body', kind: 'text', text: '完整剧本', x: 0, y: 0, w: 100, h: 100, createdAt: 1 }] });
+  const steps = ['a', 'b'].map((id) => ({ id, objective: id, dependencies: [], acceptanceCriteria: [{ id: 'body', description: '正文存在' }] }));
+  const { hub, faux } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan: { objective: '两段独立任务', tasks: steps } })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'a' })),
+    fauxAssistantMessage(fauxToolCall('read_skill', { id: 'storyboard' })),
+    say('任务 A 已加载分镜技能'),
+  ]);
+  await hub.send(board.id, { text: '准备任务 A' });
+  await settled(hub, board.id);
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'a', outputs: ['body'] })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: 3, id: 'a', evidence: [{ criterionId: 'body', note: '正文存在' }] })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 4, id: 'b' })),
+    fauxAssistantMessage(fauxToolCall('read_skill', { id: 'product-photography' })),
+    say('任务 B 已加载产品摄影技能'),
+  ]);
+  await hub.send(board.id, { text: '完成 A 并切换到 B' });
+  const view = await settled(hub, board.id);
+  await savedConversation(board.id, (text) => JSON.parse(text).activeSkillsScope === 'b');
+  await hub.rewind(board.id, view.entries.filter((entry) => entry.kind === 'user')[1].id);
+  const saved = await savedConversation(board.id, (text) => JSON.parse(text).activeSkillsScope === 'a');
+  assert.deepEqual(saved.activeSkills, ['storyboard']);
+  assert.equal(saved.taskGraph.tasks.find((task: { id: string }) => task.id === 'b').attempts, 0);
+});

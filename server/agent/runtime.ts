@@ -203,7 +203,7 @@ interface Session {
   /** The user switched plan mode off since the model last heard: the next message says so. */
   planOff?: boolean;
   /** Per user message (by timestamp): the board snapshot taken as it was sent, and the to-do list then. */
-  checkpoints: Record<string, { snapshot: string; todos: AgentTodo[]; taskGraph?: AgentTaskGraph; activeSkills?: string[] }>;
+  checkpoints: Record<string, { snapshot: string; todos: AgentTodo[]; taskGraph?: AgentTaskGraph; activeSkills?: string[]; activeSkillsScope?: string }>;
   /** Condensed or cleared since the last request, whose size no longer says how full the context is. */
   contextStale?: boolean;
   /** The user edited the memory since the model last read it: the next message carries it. */
@@ -837,7 +837,7 @@ export class AgentHub {
     // What "go back to here" returns the board to: as it is while the user sends this.
     const point = await this.deps.projects.createSnapshot(projectId, 'checkpoint', { checkpoint: true }).catch(() => undefined);
     const message: UserMessage = { role: 'user', content, timestamp: Date.now() };
-    if (point) s.checkpoints[message.timestamp] = { snapshot: point.id, todos: s.todos, taskGraph: structuredClone(s.taskGraph), activeSkills: [...s.activeSkills] };
+    if (point) s.checkpoints[message.timestamp] = { snapshot: point.id, todos: s.todos, taskGraph: structuredClone(s.taskGraph), activeSkills: [...s.activeSkills], activeSkillsScope: s.activeSkillsScope };
     this.emit({ projectId, entry: this.userRow(s, message) });
     if (s.running) {
       s.agent.steer(message);
@@ -1033,6 +1033,7 @@ export class AgentHub {
     s.todos = point.todos;
     s.taskGraph = recoverTaskGraph(point.taskGraph);
     s.activeSkills = point.activeSkills ?? [];
+    s.activeSkillsScope = point.activeSkillsScope;
     await this.save(s);
     this.emit({ projectId, todos: s.todos, taskGraph: s.taskGraph, context: this.contextOf(s) });
     return { text };

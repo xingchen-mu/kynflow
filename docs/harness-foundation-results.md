@@ -1,6 +1,6 @@
 # Harness 四阶段验证结果
 
-2026-11-25，隔离 worktree，源码 `5b17ba9e00408d1d2e3e2e458450891a9a1d744a`，两份报告均 `sourceDirty=false`。固定 fixture 指纹 `07170794efce123283d565ef5d5f51e87155e131ad633d2a41390fedcf9fcc60`，Mock 协议 `mock-tool-contract-v3`，Pi 1.4.0，Node 26.12.0。
+2026-11-25，隔离 worktree，消融与 GPU 实验源码 `5b17ba9e00408d1d2e3e2e458450891a9a1d744a`，两份报告均 `sourceDirty=false`。固定 fixture 指纹 `07170794efce123283d565ef5d5f51e87155e131ad633d2a41390fedcf9fcc60`，Mock 协议 `mock-tool-contract-v3`，Pi 1.4.0，Node 26.12.0。
 
 机器可读的逐场景状态、资源汇总及真实执行记录见 [harness-foundation-results.json](harness-foundation-results.json)。原始 Trace 留在本地 `output/harness-final-*-traces/`，可使用实现文档中的命令复现。
 
@@ -39,7 +39,7 @@
 
 ## 其他检查与适用范围
 
-- 全量 `npm test`：309/309；`npm run build` 和 `npm run smoke` 通过。
+- 发布前补充技能作用范围回退测试后，全量 `npm test`：310/310；`npm run build` 和 `npm run smoke` 通过。
 - Chrome 1280×800：用户认可按钮实际写入 pass，成功提示出现，控制台 0 error / 0 warning；[截图](media/harness-acceptance.png)。
 - 真实 LLM 创作质量对照本轮未运行；现有 [targeted 实验](agent-targeted-results.md) 的历史失败与局限保留，没有用新版 Mock 的成功覆盖旧失败。
 

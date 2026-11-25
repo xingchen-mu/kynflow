@@ -98,7 +98,7 @@ npm run benchmark:agent -- --mode scripted --profile enhanced --context provider
 npm run smoke:agent:recovery -- --real-gpu
 ```
 
-本轮本地全量测试 309 项通过，覆盖中断/重启、失去提交确认、同一尝试去重、上传中取消、迟到事件归属、预算、内容失效、技能能力缺失、上下文压力、unknown 验证、旧签名拒绝和用户反馈。构建与离线生产启动通过。浏览器使用 Playwright CLI + 本机 Chrome（Browser 插件未提供），验证 1280×800 面板、点击后的持久化 pass、成功反馈提示，控制台 0 error / 0 warning。
+本轮本地全量测试 310 项通过，覆盖中断/重启、失去提交确认、同一尝试去重、上传中取消、迟到事件归属、预算、内容失效、技能能力缺失、上下文压力、unknown 验证、旧签名拒绝、技能作用范围回退和用户反馈。构建与离线生产启动通过。浏览器使用 Playwright CLI + 本机 Chrome（Browser 插件未提供），验证 1280×800 面板、点击后的持久化 pass、成功反馈提示，控制台 0 error / 0 warning。
 
 真实执行恢复记录：2026-11-25，ComfyUI 0.41.2，NVIDIA RTX A6000，Z-Image，seed 42，1024×1024；关闭并重新建立客户端和 TaskManager 后复用同一 promptId，queueCalls=1，最终 done。首次执行已取回图片，但报告器不接受设备名称中的冒号；修复后完整复测通过。原始本地报告在 `output/harness-recovery/report.json`。
 

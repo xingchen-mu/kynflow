@@ -74,6 +74,7 @@ export class ComfyClient {
   private async request(path: string, init: RequestInit = {}, timeoutMs = 60_000): Promise<Response> {
     let res: Response;
     try {
+      // codeql[js/file-access-to-http] ComfyUI is the owner's explicitly configured executor; uploading selected local media and workflow JSON to this endpoint is the purpose of this client.
       res = await fetch(this.url(path), { ...init, signal: AbortSignal.any([...(init.signal ? [init.signal] : []), AbortSignal.timeout(timeoutMs)]) });
     } catch (err) {
       throw new ComfyError(t('无法连接 ComfyUI ({baseUrl}): {message}', { baseUrl: this.baseUrl, message: (err as Error).message }));

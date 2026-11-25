@@ -12,6 +12,7 @@ import { imageSize } from 'image-size';
 import { ComfyClient, historyError, historyFiles } from '../server/comfy/client.ts';
 import { buildWorkflow } from '../server/workflows/index.ts';
 import type { TaskRequest } from '../shared/types.ts';
+import { mimeFor } from '../server/assets/store.ts';
 
 function grayPng(w: number, h: number, pixel: (x: number, y: number) => number): Buffer {
   const raw = Buffer.alloc((w + 1) * h);
@@ -102,8 +103,10 @@ for (;;) {
   const err = historyError(entry);
   console.log(`status ${entry.status.status_str} in ${((Date.now() - t0) / 1000).toFixed(1)}s${err ? ` — ${err}` : ''}`);
   for (const f of historyFiles(entry, wf.outputNodes)) {
+    if (!mimeFor(f.filename)) continue;
     const data = await comfy.view(f);
     const dst = join(outDir, basename(f.filename));
+    // codeql[js/http-to-file-access] Explicit local test output: only allowlisted media/document types, basename strips remote directories, and the local user selects outDir. Downloaded bytes are not executed.
     await writeFile(dst, data);
     let dims = '';
     try {
