@@ -66,6 +66,8 @@ test/                单元测试和使用临时数据目录的 HTTP 回归测�
 
 Agent 的任务图、专业技能、独立视觉审查、经验反馈、路由和评估方式见 [Visual Agent Harness](docs/agent-harness.md)。`npm run eval:agent` 生成带固定用例预算的脚本化运行时评估报告，不需要模型 key 或 ComfyUI。
 
+新的 [Agent Evaluation + Feedback Harness](docs/agent-evaluation.md) 提供逐次运行轨迹、用户反馈和十个维度的 20 个固定用例。`npm run benchmark:agent -- --profile both` 用 Mock ComfyUI 做基础 / 增强对照；`npm run benchmark:agent:live` 使用已配置的真实模型，生成端仍不使用 GPU。配置阻塞与能力失败分开统计。
+
 本次目录划分只影响代码。画布仍保存到 `data/projects/<id>.json`，素材、任务、工作流等数据路径和 `DATA_DIR` 配置保持兼容，不需要迁移已有数据。
 
 ## 站点和静态演示

@@ -908,7 +908,7 @@ export interface AgentTraceEvent {
   id: string;
   runId: string;
   at: number;
-  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end';
+  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end' | 'approval';
   tool?: string;
   callId?: string;
   ok?: boolean;
@@ -920,4 +920,66 @@ export interface AgentTraceEvent {
   taskId?: string;
   gpuMs?: number;
   retry?: boolean;
+  arguments?: TraceValue;
+  result?: TraceValue;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  model?: string;
+  error?: { category: string; message: string };
+  response?: string;
+}
+
+export type TraceValue = null | boolean | number | string | TraceValue[] | { [key: string]: TraceValue };
+export type AgentHarnessProfile = 'baseline' | 'enhanced';
+export interface AgentTraceFeedback {
+  verdict: 'accepted' | 'rejected' | 'mixed';
+  comment: string;
+  assetIds: string[];
+  at: number;
+  source: 'user';
+}
+/** Observable execution evidence; never includes model thinking blocks or image payloads. */
+export interface AgentRunTrace {
+  version: 1;
+  runId: string;
+  sessionId: string;
+  projectId: string;
+  parentRunId?: string;
+  userIntent: string;
+  model: string;
+  promptVersion: string;
+  profile: AgentHarnessProfile;
+  source: 'user' | 'event';
+  generationEnvironment: 'comfyui' | 'mock';
+  startedAt: number;
+  finishedAt?: number;
+  execution: 'running' | 'completed' | 'failed' | 'aborted' | 'interrupted';
+  events: AgentTraceEvent[];
+  droppedEvents: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    paidTokens: number;
+    cost: number;
+    gpuSeconds: number;
+    toolCalls: number;
+    modelCalls: number;
+    generations: number;
+    retries: number;
+    toolErrors: number;
+    userInterventions: number;
+  };
+  outputs: string[];
+  outcome: {
+    status: 'success' | 'failed' | 'partial';
+    basis: 'unconfirmed' | 'execution' | 'user';
+    response?: string;
+    agentReview: { itemId: string; verdict: 'pass' | 'fail'; reason?: string }[];
+    userFeedback?: AgentTraceFeedback;
+  };
+  feedbackHistory: AgentTraceFeedback[];
 }

@@ -97,6 +97,10 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
   await t.test('procedural feedback is local-only, board-scoped and validated without a model key', async () => {
     const project = await (await request('/api/projects', 'POST', { name: 'experience feedback' })).json() as Project;
     assert.deepEqual(await (await request(`/api/agent/${project.id}/experiences`)).json(), []);
+    assert.deepEqual(await (await request(`/api/agent/${project.id}/traces`)).json(), []);
+    assert.equal((await request(`/api/agent/${project.id}/traces/missing-run`)).status, 404);
+    assert.equal((await request(`/api/agent/${project.id}/traces/missing-run/feedback`, 'POST', { verdict: 'accepted' })).status, 400);
+    assert.equal(await postStatusWithHost(`/api/agent/${project.id}/traces/missing-run/feedback`, '192.0.2.1', { verdict: 'accepted' }), 403);
     const path = `/api/agent/${project.id}/experiences/missing/confirm`;
     assert.equal((await request(path, 'POST', { outcome: 'unknown' })).status, 400);
     assert.equal((await request(path, 'POST', { outcome: 'success' })).status, 400);

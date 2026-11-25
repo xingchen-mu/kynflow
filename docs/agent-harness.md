@@ -1,5 +1,7 @@
 # Visual Agent Harness
 
+逐次运行轨迹、用户反馈和 20 个能力用例见 [Agent Evaluation + Feedback Harness](agent-evaluation.md)。旧平面轨迹与 4 用例回归继续兼容；新的详细轨迹单独保存，含有界、脱敏的工具参数和结果。
+
 Kynflow 保留 Pi Agent Core 和已有画布 / ComfyUI 工具，在其外围加入任务执行、专业知识、独立验收和经验反馈。以下为首版实现的实际边界；脚本化评估通过不表示真实模型的创作质量已经提高。
 
 ## 如何使用

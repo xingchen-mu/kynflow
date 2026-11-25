@@ -21,6 +21,12 @@ export function registerAgentRoutes(app: Hono, { agent, projects, series }: Pick
   app.get('/api/agent/:projectId', async (c) => c.json(await agent.view(c.req.param('projectId'))));
   app.get('/api/agent/:projectId/task-graph', async (c) => c.json(await agent.taskGraph(c.req.param('projectId'))));
   app.get('/api/agent/:projectId/trace', async (c) => c.json(await agent.trace(c.req.param('projectId'))));
+  app.get('/api/agent/:projectId/traces', async (c) => c.json(await agent.runTraces(c.req.param('projectId'), c.req.query('sessionId'))));
+  app.get('/api/agent/:projectId/traces/:runId', async (c) => {
+    const trace = await agent.runTrace(c.req.param('projectId'), c.req.param('runId'));
+    return trace ? c.json(trace) : c.json({ error: t('请求格式错误') }, 404);
+  });
+  app.post('/api/agent/:projectId/traces/:runId/feedback', async (c) => c.json(await agent.traceFeedback(c.req.param('projectId'), c.req.param('runId'), await c.req.json())));
   app.get('/api/agent/:projectId/experiences', async (c) => c.json(await agent.experiences(c.req.param('projectId'))));
   app.post('/api/agent/:projectId/experiences/:id/confirm', async (c) => {
     const body = await c.req.json<{ outcome?: unknown }>();

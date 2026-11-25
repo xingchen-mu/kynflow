@@ -4,10 +4,12 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, test } from 'node:test';
+import { after, beforeEach, test } from 'node:test';
 import { evaluateAgentTrace, type AgentEvaluationCase } from '../server/agent/evaluation.ts';
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'kynflow-agent-test-'));
+const testDataRoot = process.env.DATA_DIR;
+const { config } = await import('../server/config.ts');
 const { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } = await import('@earendil-works/pi-ai');
 const { AssetStore, publicAsset } = await import('../server/assets/store.ts');
 const { ProjectStore } = await import('../server/projects/store.ts');
@@ -50,9 +52,17 @@ function fakeTasks(records = new Map<string, Task>()) {
   });
 }
 
-const projects = new ProjectStore();
-const assets = new AssetStore();
-await Promise.all([projects.init(), assets.init()]);
+let projects: InstanceType<typeof ProjectStore>;
+let assets: InstanceType<typeof AssetStore>;
+beforeEach(async () => {
+  // Restored watch notifications must not consume another test's scripted model replies.
+  // Hubs restarted inside one test still share that test's directory and task records.
+  process.env.DATA_DIR = mkdtempSync(join(testDataRoot, 'case-'));
+  config.dataDir = process.env.DATA_DIR;
+  projects = new ProjectStore();
+  assets = new AssetStore();
+  await Promise.all([projects.init(), assets.init()]);
+});
 
 async function hubWith(tasks: ReturnType<typeof fakeTasks>, responses: Step[], opts: { compactAt?: number; clearAt?: number; commercial?: boolean; approvalMode?: 'always' | 'prompts' } = {}) {
   const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-1', input: ['text', 'image'], contextWindow: 200_000 }] });
@@ -1086,7 +1096,8 @@ test('independent visual critic sees images and criteria without creator dialogu
     ] } })),
     fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'shot' })),
     fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'shot', outputs: ['critic-out'] })),
-    fauxAssistantMessage(fauxToolCall('visual_critic', { id: 'critic-out', task_id: 'shot' })),
+    // Cross the 3-second startup recovery timer, reproducing the slow-CI scheduling window.
+    async () => { await sleep(3200); return fauxAssistantMessage(fauxToolCall('visual_critic', { id: 'critic-out', task_id: 'shot' })); },
     (context) => {
       const text = JSON.stringify(context.messages);
       isolated = !text.includes('private-creator-dialogue') && text.includes('参考人物在门左侧') && text.includes('image');
@@ -1097,7 +1108,7 @@ test('independent visual critic sees images and criteria without creator dialogu
   ]);
   await hub.send(board.id, { text: 'private-creator-dialogue，请检查人物关键帧' });
   const view = await settled(hub, board.id);
-  assert.equal(isolated, true);
+  assert.equal(isolated, true, JSON.stringify(view.entries));
   const item = (await projects.get(board.id))!.items.find((i) => i.id === 'critic-out')!;
   assert.equal(item.critic?.verdict, 'fail');
   assert.equal(item.critic?.scores.identity?.score, 58);
@@ -1198,4 +1209,59 @@ test('concurrent confirmations for the same graph task reserve one GPU submissio
   assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
   assert.equal(tasks.created.length, 1);
   assert.equal((await hub.taskGraph(board.id)).tasks[0].outputs.length, 1);
+});
+
+test('per-run traces preserve observable inputs and outputs and accept scoped human feedback after session switching', async () => {
+  const board = await projects.create('observable-run');
+  const { hub } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('write_note', { title: '分镜', content: 'S01 窗边，S02 门口。' })),
+    say('已整理两镜头分镜，等你确认。'),
+  ]);
+  await hub.send(board.id, { text: '整理两镜头分镜。api_key=private-value' });
+  await settled(hub, board.id);
+  const [trace] = await hub.runTraces(board.id);
+  assert.ok(trace);
+  assert.equal(trace.execution, 'completed');
+  assert.equal(trace.outcome.status, 'partial');
+  assert.equal(trace.outcome.basis, 'unconfirmed');
+  assert.doesNotMatch(trace.userIntent, /private-value/);
+  const call = trace.events.find((entry) => entry.type === 'tool_start' && entry.tool === 'write_note');
+  assert.deepEqual(call?.arguments, { title: '分镜', content: 'S01 窗边，S02 门口。' });
+  assert.ok(trace.usage.inputTokens > 0 && trace.usage.outputTokens > 0);
+  assert.match(trace.promptVersion, /^agent-v2-enhanced-/);
+  await hub.newSession(board.id);
+  const feedback = await hub.traceFeedback(board.id, trace.runId, { verdict: 'accepted', assetIds: trace.outputs, comment: '分镜符合要求', source: 'agent' });
+  assert.equal(feedback.outcome.basis, 'user');
+  assert.equal(feedback.outcome.status, 'success');
+  assert.equal(feedback.outcome.userFeedback?.source, 'user');
+  assert.equal((await hub.runTraces(board.id, trace.sessionId)).length, 1);
+  const other = await projects.create('unrelated-run');
+  await assert.rejects(() => hub.traceFeedback(other.id, trace.runId, { verdict: 'accepted' }));
+});
+
+test('messages accepted while the final trace is saving run before the session becomes idle', async () => {
+  const board = await projects.create('trace-finalization');
+  const { hub } = await hubWith(fakeTasks(), [say('第一段完成'), say('第二段完成')]);
+  await hub.view(board.id);
+  const store = (hub as unknown as { traceStore: { flush(): Promise<void> } }).traceStore;
+  const original = store.flush.bind(store);
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const saving = new Promise<void>((resolve) => { entered = resolve; });
+  let first = true;
+  store.flush = async () => {
+    await original();
+    if (first) { first = false; entered(); await gate; }
+  };
+  try {
+    await hub.send(board.id, { text: '第一段' });
+    await saving;
+    assert.equal((await hub.view(board.id)).running, true);
+    await hub.send(board.id, { text: '第二段' });
+  } finally { release(); }
+  const view = await settled(hub, board.id);
+  assert.deepEqual(view.entries.filter((entry) => entry.kind === 'assistant').map((entry) => entry.kind === 'assistant' && entry.text), ['第一段完成', '第二段完成']);
+  const { hub: restarted } = await hubWith(fakeTasks(), []);
+  assert.ok((await restarted.view(board.id)).entries.some((entry) => entry.kind === 'assistant' && entry.text === '第二段完成'));
 });
