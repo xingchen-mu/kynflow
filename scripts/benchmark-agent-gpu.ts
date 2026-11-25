@@ -16,12 +16,13 @@ import { ComfyClient } from '../server/comfy/client.ts';
 import { createCapabilities } from '../server/comfy/capabilities.ts';
 import { AgentHub } from '../server/agent/runtime.ts';
 import { GpuSubmissionBudget } from '../server/agent/evaluation/gpu-budget.ts';
+import { gpuReportLabel, gpuReportPath } from '../server/agent/evaluation/gpu-report.ts';
 import { redactTraceText } from '../server/agent/trace/redact.ts';
 
 const args = process.argv.slice(2);
 if (!args.includes('--real-gpu')) throw new Error('This test uses the configured GPU. Pass --real-gpu to opt in.');
 const value = (name: string) => { const at = args.indexOf(name); return at < 0 ? undefined : args[at + 1]; };
-const output = resolve(value('--output') ?? 'output/agent-gpu-evaluation.json');
+const output = gpuReportPath(value('--output') ?? 'output/agent-gpu-evaluation.json');
 const artifactDirectory = join(dirname(output), `${basename(output, '.json')}-assets`);
 await mkdir(artifactDirectory, { recursive: true });
 const settings = new SettingsStore();
@@ -38,6 +39,8 @@ await Promise.all([workflows.init(), presets.init()]);
 const capabilities = createCapabilities(comfy, workflows, presets, settings);
 const caps = await capabilities.get();
 if (!caps.comfyOnline) throw new Error('Configured ComfyUI is offline');
+const comfyVersion = gpuReportLabel(caps.comfyVersion);
+const gpu = gpuReportLabel(caps.gpu);
 const ownerDataDirectory = config.dataDir;
 const temporary = await mkdtemp(join(tmpdir(), 'kynflow-real-gpu-'));
 config.dataDir = temporary;
@@ -135,9 +138,10 @@ finally {
   let revision = 'unknown';
   try { revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { /* source archive */ }
   const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim().length > 0;
-  const report = { version: 1, at: new Date().toISOString(), revision, dirty, model: settings.agentConfig().model, comfyUI: caps.comfyVersion, gpu: caps.gpu, suppliedInput: value('--input') ? resolve(value('--input')!) : undefined,
+  const report = { version: 1, at: new Date().toISOString(), revision, dirty, model: settings.agentConfig().model, comfyUI: comfyVersion, gpu, suppliedInput: value('--input') ? resolve(value('--input')!) : undefined,
     generationEnvironment: 'comfyui', executionPassed: !error && phases.length >= 2 && phases.every((phase) => phase.executionPassed), error, phases, images,
     interpretation: 'Small real-GPU end-to-end validation. Agent and independent model judgments are not human-confirmed quality scores, and this is not a paired capability benchmark.' };
+  // codeql[js/http-to-file-access] Intentional JSON telemetry archive: remote labels are bounded/validated; only the local CLI selects the .json destination. This file is never executed.
   await writeFile(output, JSON.stringify(report, null, 2) + '\n');
   await Promise.all([assets.flush(), tasks.flush()]);
   comfy.close();
