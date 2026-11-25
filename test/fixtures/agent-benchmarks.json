@@ -6,7 +6,8 @@
     "piAI": "1.4.0",
     "comfyUI": "none (scripted task queue)",
     "gpu": "none",
-    "scope": "Deterministic harness regressions, not model reasoning or visual-quality measurements"
+    "scope": "Deterministic harness regressions, not model reasoning or visual-quality measurements",
+    "skillLibrary": "15 builtins; expanded storyboard instructions; token baselines documented in docs/creative-skills.md"
   },
   "cases": [
     {
@@ -28,7 +29,7 @@
       "minCompletedTasks": 1,
       "budget": {
         "toolCalls": 8,
-        "tokens": 27000,
+        "tokens": 36000,
         "cost": 1,
         "gpuMs": 0,
         "retries": 0
@@ -43,7 +44,7 @@
       "minRecoveries": 1,
       "budget": {
         "toolCalls": 4,
-        "tokens": 22000,
+        "tokens": 25000,
         "cost": 1,
         "gpuMs": 0,
         "retries": 0
@@ -59,7 +60,7 @@
       },
       "budget": {
         "toolCalls": 6,
-        "tokens": 25000,
+        "tokens": 33000,
         "cost": 1,
         "gpuMs": 0,
         "retries": 0

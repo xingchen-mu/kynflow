@@ -1,0 +1,81 @@
+{
+  "formatVersion": 1,
+  "status": "not_run",
+  "cases": [
+    {
+      "id": "perfume-glass",
+      "request": "使用提供的透明香水瓶参考做暗调主视觉，保留标签 LUNE，右上留文案位。",
+      "skills": ["product-photography", "lighting", "material-rendering"],
+      "inputs": ["正面可读标签的透明瓶参考", "瓶身斜侧参考"],
+      "expectedBehavior": ["锁定瓶型、液面、瓶盖和标签", "选择暗背景亮边且避开标签的反射方案", "使用支持真实参考的工作流并传原参考审查"],
+      "outputChecks": [
+        { "dimension": "identity", "description": "瓶身、盖体与液面符合参考" },
+        { "dimension": "quality", "description": "透明边缘与透射可解释，接触阴影可信" },
+        { "dimension": "text", "description": "标签 LUNE 正确且可读" },
+        { "dimension": "composition", "description": "右上留白不被高光和道具占据" }
+      ],
+      "failureConditions": ["标签错误却用美感评分判通过", "把瓶身画成不透明塑料", "没有真实参考仍宣称商品还原"]
+    },
+    {
+      "id": "polished-watch",
+      "request": "为参考中的金属手表拍一张广告图，保留表盘刻度和表冠位置。",
+      "skills": ["product-photography", "material-rendering"],
+      "inputs": ["表盘与表冠可辨的手表参考"],
+      "expectedBehavior": ["区分表镜、抛光壳体和拉丝表带", "设计有结构的反射，不用过曝遮住表盘", "部件几何与材质分别验收"],
+      "outputChecks": [
+        { "dimension": "identity", "description": "表冠、指针、刻度和链节符合参考" },
+        { "dimension": "quality", "description": "金属有曲面反射层次，表盘可见" }
+      ],
+      "failureConditions": ["新增刻度或移动表冠", "用星芒或白色发光掩盖金属结构"]
+    },
+    {
+      "id": "white-background",
+      "request": "把参考产品做成白底电商主图，产品外观和比例不变。",
+      "skills": ["product-photography", "composition"],
+      "inputs": ["完整产品原图"],
+      "expectedBehavior": ["区分换背景与重新设计产品", "查找参考编辑或去背景能力", "保留完整外形和轻接触关系"],
+      "outputChecks": [
+        { "dimension": "identity", "description": "外形、颜色和部件不变" },
+        { "dimension": "composition", "description": "完整产品有足够尺度与边距" },
+        { "dimension": "quality", "description": "白底干净，产品边缘无明显缺损" }
+      ],
+      "failureConditions": ["用纯文生图重画后声称精准保留", "裁掉必要部件", "产生漂浮接触关系"]
+    },
+    {
+      "id": "cosmetic-label",
+      "request": "给这支带标签的粉底液换场景，不改色号、品牌和包装文字。",
+      "skills": ["product-photography", "character-consistency"],
+      "inputs": ["色号与标签清晰的粉底液参考"],
+      "expectedBehavior": ["记录标签原文和色号", "独立检查文字与包装", "精确文字不可靠时说明后期方案与部分完成状态"],
+      "outputChecks": [
+        { "dimension": "identity", "description": "色号、瓶型与泵头一致" },
+        { "dimension": "text", "description": "原有标签文字正确且未被场景遮挡" }
+      ],
+      "failureConditions": ["编造功效或认证", "替换品牌或色号", "没有叠字能力却宣称已精确排版"]
+    },
+    {
+      "id": "food-texture",
+      "request": "用参考汉堡做食品广告，配料和层数保持一致，突出酥脆与多汁。",
+      "skills": ["product-photography", "lighting", "material-rendering"],
+      "inputs": ["可辨认层次与配料的汉堡参考"],
+      "expectedBehavior": ["锁定配料、层数与食物状态", "按层叠结构选斜角与侧光", "区分湿润与酥脆表面"],
+      "outputChecks": [
+        { "dimension": "instruction", "description": "配料和层数符合原参考" },
+        { "dimension": "quality", "description": "纹理、接触与重力可信，没有均匀塑料光泽" }
+      ],
+      "failureConditions": ["擅自增加配料", "靠过饱和颜色掩盖状态错误"]
+    },
+    {
+      "id": "skincare-poster",
+      "request": "做一张参考护肤品的竖版海报，右侧留两行标题和一行说明，暂不排字。",
+      "skills": ["product-photography", "composition"],
+      "inputs": ["护肤品参考", "明确的目标画面比例"],
+      "expectedBehavior": ["区分产品原标签与海报文案", "按文案功能安排低细节留白", "不生成用户尚未要求排入的标题"],
+      "outputChecks": [
+        { "dimension": "identity", "description": "包装与标签外观符合参考" },
+        { "dimension": "composition", "description": "右侧空间可容纳指定层级且主体仍可识别" }
+      ],
+      "failureConditions": ["留白被花卉或高光占满", "为了留白把产品缩到无法识别", "擅自添加广告功效文案"]
+    }
+  ]
+}
