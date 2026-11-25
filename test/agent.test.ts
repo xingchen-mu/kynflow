@@ -1097,7 +1097,7 @@ test('independent visual critic sees images and criteria without creator dialogu
   ]);
   await hub.send(board.id, { text: 'private-creator-dialogue，请检查人物关键帧' });
   const view = await settled(hub, board.id);
-  assert.equal(isolated, true);
+  assert.equal(isolated, true, JSON.stringify(view.entries));
   const item = (await projects.get(board.id))!.items.find((i) => i.id === 'critic-out')!;
   assert.equal(item.critic?.verdict, 'fail');
   assert.equal(item.critic?.scores.identity?.score, 58);
