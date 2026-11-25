@@ -4,10 +4,12 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { after, test } from 'node:test';
+import { after, beforeEach, test } from 'node:test';
 import { evaluateAgentTrace, type AgentEvaluationCase } from '../server/agent/evaluation.ts';
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'kynflow-agent-test-'));
+const testDataRoot = process.env.DATA_DIR;
+const { config } = await import('../server/config.ts');
 const { createModels, fauxAssistantMessage, fauxProvider, fauxToolCall } = await import('@earendil-works/pi-ai');
 const { AssetStore, publicAsset } = await import('../server/assets/store.ts');
 const { ProjectStore } = await import('../server/projects/store.ts');
@@ -50,9 +52,17 @@ function fakeTasks(records = new Map<string, Task>()) {
   });
 }
 
-const projects = new ProjectStore();
-const assets = new AssetStore();
-await Promise.all([projects.init(), assets.init()]);
+let projects: InstanceType<typeof ProjectStore>;
+let assets: InstanceType<typeof AssetStore>;
+beforeEach(async () => {
+  // Restored watch notifications must not consume another test's scripted model replies.
+  // Hubs restarted inside one test still share that test's directory and task records.
+  process.env.DATA_DIR = mkdtempSync(join(testDataRoot, 'case-'));
+  config.dataDir = process.env.DATA_DIR;
+  projects = new ProjectStore();
+  assets = new AssetStore();
+  await Promise.all([projects.init(), assets.init()]);
+});
 
 async function hubWith(tasks: ReturnType<typeof fakeTasks>, responses: Step[], opts: { compactAt?: number; clearAt?: number; commercial?: boolean; approvalMode?: 'always' | 'prompts' } = {}) {
   const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-1', input: ['text', 'image'], contextWindow: 200_000 }] });
@@ -1086,7 +1096,8 @@ test('independent visual critic sees images and criteria without creator dialogu
     ] } })),
     fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'shot' })),
     fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'shot', outputs: ['critic-out'] })),
-    fauxAssistantMessage(fauxToolCall('visual_critic', { id: 'critic-out', task_id: 'shot' })),
+    // Cross the 3-second startup recovery timer, reproducing the slow-CI scheduling window.
+    async () => { await sleep(3200); return fauxAssistantMessage(fauxToolCall('visual_critic', { id: 'critic-out', task_id: 'shot' })); },
     (context) => {
       const text = JSON.stringify(context.messages);
       isolated = !text.includes('private-creator-dialogue') && text.includes('参考人物在门左侧') && text.includes('image');
