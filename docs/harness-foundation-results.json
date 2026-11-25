@@ -1,0 +1,1626 @@
+{
+  "version": 1,
+  "testedRevision": "5b17ba9e00408d1d2e3e2e458450891a9a1d744a",
+  "fixtureVersion": "07170794efce123283d565ef5d5f51e87155e131ad633d2a41390fedcf9fcc60",
+  "environment": {
+    "mode": "scripted",
+    "enhancement": "targeted",
+    "contextMode": "providers",
+    "protocol": "mock-tool-contract-v3",
+    "model": "benchmark/scripted-v1",
+    "node": "v26.12.0",
+    "pi": "1.4.0",
+    "comfyUI": "mock-v2 (real HTTP, TaskManager, uploaded inputs and sized outputs)",
+    "gpu": "none",
+    "visualInputs": "authored color/shape fixtures; generated visual quality is not scored",
+    "cost": "provider catalog estimate; custom endpoint prices may be unknown"
+  },
+  "interpretation": "Scripted protocol and input-size estimates, not observed LLM decisions, billing, or generated visual quality.",
+  "configurations": {
+    "baseline": {
+      "cases": 20,
+      "assessed": 20,
+      "blocked": 0,
+      "passed": 20,
+      "passRate": 1,
+      "dimensions": {
+        "intent": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "tool_selection": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "parameters": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "visual": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "self_correction": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "planning": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "context": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "memory": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "recovery": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "efficiency": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        }
+      },
+      "usage": {
+        "inputTokens": 574086,
+        "outputTokens": 937,
+        "toolCalls": 42,
+        "userInterventions": 0,
+        "retries": 2,
+        "cost": 0
+      }
+    },
+    "providers": {
+      "cases": 20,
+      "assessed": 20,
+      "blocked": 0,
+      "passed": 20,
+      "passRate": 1,
+      "dimensions": {
+        "intent": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "tool_selection": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "parameters": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "visual": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "self_correction": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "planning": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "context": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "memory": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "recovery": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "efficiency": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        }
+      },
+      "usage": {
+        "inputTokens": 740096,
+        "outputTokens": 937,
+        "toolCalls": 42,
+        "userInterventions": 0,
+        "retries": 2,
+        "cost": 0
+      }
+    },
+    "focused": {
+      "cases": 20,
+      "assessed": 20,
+      "blocked": 0,
+      "passed": 20,
+      "passRate": 1,
+      "dimensions": {
+        "intent": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "tool_selection": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "parameters": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "visual": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "self_correction": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "planning": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "context": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "memory": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "recovery": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        },
+        "efficiency": {
+          "cases": 2,
+          "assessed": 2,
+          "blocked": 0,
+          "passed": 2,
+          "passRate": 1
+        }
+      },
+      "usage": {
+        "inputTokens": 740096,
+        "outputTokens": 937,
+        "toolCalls": 42,
+        "userInterventions": 0,
+        "retries": 2,
+        "cost": 0
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "intent-upscale",
+      "dimension": "intent",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34855,
+        "outputTokens": 60,
+        "paidTokens": 14095,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 89
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "intent-remove-background",
+      "dimension": "intent",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34818,
+        "outputTokens": 57,
+        "paidTokens": 14071,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 88
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "selection-no-substitute",
+      "dimension": "tool_selection",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20767,
+        "outputTokens": 27,
+        "paidTokens": 13903,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 7
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "selection-two-references",
+      "dimension": "tool_selection",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34942,
+        "outputTokens": 63,
+        "paidTokens": 14136,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 92
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "parameters-fast-square",
+      "dimension": "parameters",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27724,
+        "outputTokens": 46,
+        "paidTokens": 13964,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 86
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "parameters-edit-aspect",
+      "dimension": "parameters",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34872,
+        "outputTokens": 64,
+        "paidTokens": 14109,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 90
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "visual-left-right",
+      "dimension": "visual",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20725,
+        "outputTokens": 12,
+        "paidTokens": 13850,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 7
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "visual-compare-shapes",
+      "dimension": "visual",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20794,
+        "outputTokens": 16,
+        "paidTokens": 13912,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "correction-spatial-layout",
+      "dimension": "self_correction",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 49486,
+        "outputTokens": 118,
+        "paidTokens": 14475,
+        "cost": 0,
+        "toolCalls": 5,
+        "toolErrors": 0,
+        "modelCalls": 6,
+        "generations": 1,
+        "retries": 1,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 96
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "correction-exact-text",
+      "dimension": "self_correction",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 42187,
+        "outputTokens": 95,
+        "paidTokens": 14307,
+        "cost": 0,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "modelCalls": 5,
+        "generations": 1,
+        "retries": 1,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 92
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "planning-before-generation",
+      "dimension": "planning",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20747,
+        "outputTokens": 48,
+        "paidTokens": 13916,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "planning-shared-reference",
+      "dimension": "planning",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27961,
+        "outputTokens": 88,
+        "paidTokens": 14165,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 3,
+        "retries": 0,
+        "gpuSeconds": 0.14,
+        "userInterventions": 0,
+        "durationMs": 91
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "context-selective-edit",
+      "dimension": "context",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20725,
+        "outputTokens": 18,
+        "paidTokens": 13855,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "context-long-script",
+      "dimension": "context",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 30795,
+        "outputTokens": 26,
+        "paidTokens": 15931,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "memory-preference",
+      "dimension": "memory",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27764,
+        "outputTokens": 46,
+        "paidTokens": 13984,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 87
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "memory-character-retrieval",
+      "dimension": "memory",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20744,
+        "outputTokens": 15,
+        "paidTokens": 13872,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 9
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "recovery-out-of-memory",
+      "dimension": "recovery",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 41850,
+        "outputTokens": 80,
+        "paidTokens": 14170,
+        "cost": 0,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "modelCalls": 5,
+        "generations": 2,
+        "retries": 0,
+        "gpuSeconds": 0.094,
+        "userInterventions": 0,
+        "durationMs": 160
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "recovery-offline",
+      "dimension": "recovery",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20743,
+        "outputTokens": 15,
+        "paidTokens": 13880,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 1,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 9
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "efficiency-selected-only",
+      "dimension": "efficiency",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20734,
+        "outputTokens": 10,
+        "paidTokens": 13854,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "efficiency-batch-rename",
+      "dimension": "efficiency",
+      "profile": "baseline",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 20853,
+        "outputTokens": 33,
+        "paidTokens": 13974,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 9
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "intent-upscale",
+      "dimension": "intent",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45243,
+        "outputTokens": 60,
+        "paidTokens": 18254,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 101
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "intent-remove-background",
+      "dimension": "intent",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45205,
+        "outputTokens": 57,
+        "paidTokens": 18229,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 106
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "selection-no-substitute",
+      "dimension": "tool_selection",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26979,
+        "outputTokens": 27,
+        "paidTokens": 18044,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 17
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "selection-two-references",
+      "dimension": "tool_selection",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45342,
+        "outputTokens": 63,
+        "paidTokens": 18299,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 102
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "parameters-fast-square",
+      "dimension": "parameters",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34874,
+        "outputTokens": 46,
+        "paidTokens": 17539,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 88
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "parameters-edit-aspect",
+      "dimension": "parameters",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45229,
+        "outputTokens": 64,
+        "paidTokens": 18255,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.049,
+        "userInterventions": 0,
+        "durationMs": 100
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "visual-left-right",
+      "dimension": "visual",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26920,
+        "outputTokens": 12,
+        "paidTokens": 17980,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 14
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "visual-compare-shapes",
+      "dimension": "visual",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27040,
+        "outputTokens": 16,
+        "paidTokens": 18076,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 16
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "correction-spatial-layout",
+      "dimension": "self_correction",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 64146,
+        "outputTokens": 118,
+        "paidTokens": 18670,
+        "cost": 0,
+        "toolCalls": 5,
+        "toolErrors": 0,
+        "modelCalls": 6,
+        "generations": 1,
+        "retries": 1,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 114
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "correction-exact-text",
+      "dimension": "self_correction",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 54990,
+        "outputTokens": 95,
+        "paidTokens": 19169,
+        "cost": 0,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "modelCalls": 5,
+        "generations": 1,
+        "retries": 1,
+        "gpuSeconds": 0.049,
+        "userInterventions": 0,
+        "durationMs": 107
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "planning-before-generation",
+      "dimension": "planning",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26111,
+        "outputTokens": 48,
+        "paidTokens": 17492,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 7
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "planning-shared-reference",
+      "dimension": "planning",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 36214,
+        "outputTokens": 88,
+        "paidTokens": 18292,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 3,
+        "retries": 0,
+        "gpuSeconds": 0.14400000000000002,
+        "userInterventions": 0,
+        "durationMs": 96
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "context-selective-edit",
+      "dimension": "context",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27257,
+        "outputTokens": 18,
+        "paidTokens": 18664,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 15
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "context-long-script",
+      "dimension": "context",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 40383,
+        "outputTokens": 26,
+        "paidTokens": 20725,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 22
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "memory-preference",
+      "dimension": "memory",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34914,
+        "outputTokens": 46,
+        "paidTokens": 17559,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.046,
+        "userInterventions": 0,
+        "durationMs": 86
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "memory-character-retrieval",
+      "dimension": "memory",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26106,
+        "outputTokens": 15,
+        "paidTokens": 17447,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 9
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "recovery-out-of-memory",
+      "dimension": "recovery",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 52576,
+        "outputTokens": 80,
+        "paidTokens": 17745,
+        "cost": 0,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "modelCalls": 5,
+        "generations": 2,
+        "retries": 0,
+        "gpuSeconds": 0.094,
+        "userInterventions": 0,
+        "durationMs": 159
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "recovery-offline",
+      "dimension": "recovery",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26105,
+        "outputTokens": 15,
+        "paidTokens": 17455,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 1,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "efficiency-selected-only",
+      "dimension": "efficiency",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26947,
+        "outputTokens": 10,
+        "paidTokens": 17996,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 14
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "efficiency-batch-rename",
+      "dimension": "efficiency",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27515,
+        "outputTokens": 33,
+        "paidTokens": 18937,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 15
+      },
+      "contextMode": "providers"
+    },
+    {
+      "id": "intent-upscale",
+      "dimension": "intent",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45243,
+        "outputTokens": 60,
+        "paidTokens": 18254,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 96
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "intent-remove-background",
+      "dimension": "intent",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45205,
+        "outputTokens": 57,
+        "paidTokens": 18229,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 95
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "selection-no-substitute",
+      "dimension": "tool_selection",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26979,
+        "outputTokens": 27,
+        "paidTokens": 18044,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 12
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "selection-two-references",
+      "dimension": "tool_selection",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45342,
+        "outputTokens": 63,
+        "paidTokens": 18299,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 99
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "parameters-fast-square",
+      "dimension": "parameters",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34874,
+        "outputTokens": 46,
+        "paidTokens": 17539,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.046,
+        "userInterventions": 0,
+        "durationMs": 85
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "parameters-edit-aspect",
+      "dimension": "parameters",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 45229,
+        "outputTokens": 64,
+        "paidTokens": 18255,
+        "cost": 0,
+        "toolCalls": 3,
+        "toolErrors": 0,
+        "modelCalls": 4,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 97
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "visual-left-right",
+      "dimension": "visual",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26920,
+        "outputTokens": 12,
+        "paidTokens": 17980,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 14
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "visual-compare-shapes",
+      "dimension": "visual",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27040,
+        "outputTokens": 16,
+        "paidTokens": 18076,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 12
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "correction-spatial-layout",
+      "dimension": "self_correction",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 64146,
+        "outputTokens": 118,
+        "paidTokens": 18670,
+        "cost": 0,
+        "toolCalls": 5,
+        "toolErrors": 0,
+        "modelCalls": 6,
+        "generations": 1,
+        "retries": 1,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 109
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "correction-exact-text",
+      "dimension": "self_correction",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 54990,
+        "outputTokens": 95,
+        "paidTokens": 19169,
+        "cost": 0,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "modelCalls": 5,
+        "generations": 1,
+        "retries": 1,
+        "gpuSeconds": 0.048,
+        "userInterventions": 0,
+        "durationMs": 102
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "planning-before-generation",
+      "dimension": "planning",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26111,
+        "outputTokens": 48,
+        "paidTokens": 17492,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 8
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "planning-shared-reference",
+      "dimension": "planning",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 36214,
+        "outputTokens": 88,
+        "paidTokens": 18292,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 3,
+        "retries": 0,
+        "gpuSeconds": 0.14,
+        "userInterventions": 0,
+        "durationMs": 94
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "context-selective-edit",
+      "dimension": "context",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27257,
+        "outputTokens": 18,
+        "paidTokens": 18664,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 12
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "context-long-script",
+      "dimension": "context",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 40383,
+        "outputTokens": 26,
+        "paidTokens": 20725,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 17
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "memory-preference",
+      "dimension": "memory",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 34914,
+        "outputTokens": 46,
+        "paidTokens": 17559,
+        "cost": 0,
+        "toolCalls": 2,
+        "toolErrors": 0,
+        "modelCalls": 3,
+        "generations": 1,
+        "retries": 0,
+        "gpuSeconds": 0.047,
+        "userInterventions": 0,
+        "durationMs": 86
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "memory-character-retrieval",
+      "dimension": "memory",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26106,
+        "outputTokens": 15,
+        "paidTokens": 17447,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 9
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "recovery-out-of-memory",
+      "dimension": "recovery",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 52576,
+        "outputTokens": 80,
+        "paidTokens": 17745,
+        "cost": 0,
+        "toolCalls": 4,
+        "toolErrors": 0,
+        "modelCalls": 5,
+        "generations": 2,
+        "retries": 0,
+        "gpuSeconds": 0.095,
+        "userInterventions": 0,
+        "durationMs": 159
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "recovery-offline",
+      "dimension": "recovery",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26105,
+        "outputTokens": 15,
+        "paidTokens": 17455,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 1,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 9
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "efficiency-selected-only",
+      "dimension": "efficiency",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 26947,
+        "outputTokens": 10,
+        "paidTokens": 17996,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 12
+      },
+      "contextMode": "focused"
+    },
+    {
+      "id": "efficiency-batch-rename",
+      "dimension": "efficiency",
+      "profile": "enhanced",
+      "mode": "scripted",
+      "status": "passed",
+      "metrics": {
+        "inputTokens": 27515,
+        "outputTokens": 33,
+        "paidTokens": 18937,
+        "cost": 0,
+        "toolCalls": 1,
+        "toolErrors": 0,
+        "modelCalls": 2,
+        "generations": 0,
+        "retries": 0,
+        "gpuSeconds": 0,
+        "userInterventions": 0,
+        "durationMs": 13
+      },
+      "contextMode": "focused"
+    }
+  ],
+  "gpuRecovery": {
+    "at": "2026-11-25T06:30:20.689Z",
+    "passed": true,
+    "queueCalls": 1,
+    "before": {
+      "id": "GvvOkGEK5x",
+      "promptId": "4e3c63c4-940d-4377-9e13-8d3aaac9635b",
+      "status": "queued"
+    },
+    "after": {
+      "id": "GvvOkGEK5x",
+      "promptId": "4e3c63c4-940d-4377-9e13-8d3aaac9635b",
+      "status": "done"
+    },
+    "width": 1024,
+    "height": 1024,
+    "comfyVersion": "0.41.2",
+    "gpu": "cuda:0 NVIDIA RTX A6000 : cudaMallocAsync",
+    "model": "zimage",
+    "seed": 42,
+    "imageSha256": "406de3aa105bed73f55a2676f445a5251ca581479aab660b150be40870d74d51"
+  }
+}
