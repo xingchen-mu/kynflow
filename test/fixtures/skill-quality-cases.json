@@ -1,0 +1,87 @@
+{
+  "formatVersion": 1,
+  "status": "not_run",
+  "cases": [
+    {
+      "id": "advertising-fifteen-seconds",
+      "request": "为参考香水做一条15秒广告，只使用我给出的卖点，不要配乐。",
+      "skills": ["advertising-video", "product-photography", "camera-movement"],
+      "inputs": ["产品参考", "用户提供的卖点"],
+      "expectedBehavior": ["区分生成片段时长与15秒剪辑计划", "先验收关键帧再生成视频", "保留结尾产品识别时间并遵守已有授权"],
+      "outputChecks": [{ "dimension": "identity", "description": "产品在抽样中稳定" }, { "dimension": "instruction", "description": "实际成片时长符合约定容差，仅包含已有卖点，没有主动添加配乐" }],
+      "failureConditions": ["宣称拼接工具能调色配乐", "所有视频仅凭首中尾就宣称无闪烁"]
+    },
+    {
+      "id": "character-wardrobe-change",
+      "request": "用同一角色换成蓝色外套，在雨中做近景；保留脸与发型。",
+      "skills": ["character-consistency", "lighting"],
+      "inputs": ["角色清晰基准图", "蓝色外套参考"],
+      "expectedBehavior": ["把衣服标为允许变化，把脸和发型标为锁定", "使用当前工作流支持的参考数量", "分别核对脸、发型与新服装"],
+      "outputChecks": [{ "dimension": "identity", "description": "脸与发型符合基准，新外套符合用户要求" }, { "dimension": "quality", "description": "雨中光线仍保留必要面部信息" }],
+      "failureConditions": ["锁住旧衣服不允许更换", "遮挡或像素不足却判定身份完全通过"]
+    },
+    {
+      "id": "restore-scratch",
+      "request": "只修复这张老照片左下的划痕，不改人脸，不要上色。",
+      "skills": ["image-restoration"],
+      "inputs": ["有局部划痕的老照片"],
+      "expectedBehavior": ["定位缺陷并保留原图", "选择局部修复能力，缺蒙版时说明编辑器路径", "同时检查原本完好的区域"],
+      "outputChecks": [{ "dimension": "identity", "description": "原有人脸保持不变" }, { "dimension": "instruction", "description": "仅处理指定划痕，没有上色或额外美化" }],
+      "failureConditions": ["把全图重生当局部修复", "虚构缺失五官并声称恢复原貌"]
+    },
+    {
+      "id": "prompt-only-edit",
+      "request": "只帮我改写Qwen参考图编辑提示词：保留杯子，只换浅蓝背景，不要开始生成。",
+      "skills": ["prompt-engineering"],
+      "inputs": ["杯子参考", "现有提示词"],
+      "expectedBehavior": ["读取适用的Qwen编辑手册", "区分保留项与变化项", "只交付提示词及参数建议，不启动生成"],
+      "outputChecks": [{ "dimension": "instruction", "description": "文字交付包含保留杯子和替换背景，不擅自生成" }],
+      "failureConditions": ["加入模型无法接收的控制槽位", "把提示词已写入当作画面验收通过"]
+    },
+    {
+      "id": "short-drama-adaptation",
+      "request": "把我给的故事改成30秒短剧分镜，保留结局，只做到分镜。",
+      "skills": ["short-drama", "storyboard", "cinematography"],
+      "inputs": ["有明确事件、动机与结局的原作"],
+      "expectedBehavior": ["读取改编手册并保留原作关键事实", "按信息作用选景别和机位", "记录时长、动作起止和承接并停在分镜阶段"],
+      "outputChecks": [{ "dimension": "instruction", "description": "结局和因果保留，没有擅自生成视频" }, { "dimension": "composition", "description": "分镜设计中的关键叙事信息有对应可见画面" }],
+      "failureConditions": ["为方便生成改结局", "每镜只写高级感电影光影，没有可执行信息"]
+    },
+    {
+      "id": "handoff-continuity",
+      "request": "检查相邻两镜：S01中A右手把手机递给B，S02中手机又回到A手上。",
+      "skills": ["storyboard", "shot-continuity"],
+      "inputs": ["相邻镜头视频", "分镜", "人物与场景参考"],
+      "expectedBehavior": ["检查交接前后与切点附近证据", "把道具持有者和手别写入状态链", "只修错误镜头及受影响下游"],
+      "outputChecks": [{ "dimension": "spatial", "description": "交接起止与后镜持物状态一致" }, { "dimension": "temporal", "description": "已覆盖的交接动作没有无理由的物体跳变" }],
+      "failureConditions": ["单镜美观合格就判定剪接连续", "稀疏抽样看不清仍断言交接正确"]
+    },
+    {
+      "id": "camera-track-versus-pan",
+      "request": "让镜头横移展示产品侧面，不要让产品自己旋转，标签仍需可辨。",
+      "skills": ["camera-movement", "cinematography"],
+      "inputs": ["产品首帧", "可见侧面的产品参考"],
+      "expectedBehavior": ["分开主体动作和相机路径", "区别横移与原地摇摄", "为标签可读限制运动幅度，检查事件附近样本"],
+      "outputChecks": [{ "dimension": "temporal", "description": "观察样本中的路径符合相机横移意图，没有把产品转动当作运镜" }, { "dimension": "text", "description": "要求的标签在相关样本中可辨" }],
+      "failureConditions": ["声称术语能保证精确相机轨迹", "横移失败后叠加无关环绕词"]
+    },
+    {
+      "id": "edit-preserve-dialogue",
+      "request": "把三段素材剪成一条，保留所有台词，不要烧字幕。",
+      "skills": ["film-editing", "shot-continuity"],
+      "inputs": ["三个有声视频节点", "已核对的台词原文与顺序"],
+      "expectedBehavior": ["按实际声音区间选段", "使用原片段时间写字幕时序并关闭烧字", "保留对白音轨，修正裁切错误而非绕过检查"],
+      "outputChecks": [{ "dimension": "instruction", "description": "实际播放中对白完整且无烧录字幕" }, { "dimension": "temporal", "description": "关键切点动作承接合理" }],
+      "failureConditions": ["将检测到有声误称为转写成功", "误把关闭字幕当作删除声音", "无证据跳过首帧检查"]
+    },
+    {
+      "id": "reference-evidence-limits",
+      "request": "拆解这条参考广告的画面节奏和声音设计，先只交分析表。",
+      "skills": ["viral-replication", "composition"],
+      "inputs": ["可抽帧的参考视频；假设当前没有可用听音工具"],
+      "expectedBehavior": ["记录可观察的时间点和画面结构", "分开事实、推测和待核对声音", "只交分析，不开始改编生成"],
+      "outputChecks": [{ "dimension": "instruction", "description": "表中画面判断有样本依据，声音未知项被明确保留" }],
+      "failureConditions": ["凭视频帧编造音乐节奏或台词", "未经请求开始批量生成"]
+    }
+  ]
+}

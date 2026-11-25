@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, beforeEach, test } from 'node:test';
 import { evaluateAgentTrace, type AgentEvaluationCase } from '../server/agent/evaluation.ts';
+import { SkillEngine } from '../server/agent/skills.ts';
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'kynflow-agent-test-'));
 const testDataRoot = process.env.DATA_DIR;
@@ -1016,6 +1017,7 @@ const harnessPlan = {
 
 test('task graph execution persists acceptance, drives fresh inference context and follows session history', async () => {
   const board = await projects.create('harness-session');
+  const skillText = JSON.stringify(await new SkillEngine('/unused').read('storyboard')).slice(1, -1);
   let sawFreshContext = false;
   let sawSkill = false;
   const { hub } = await hubWith(fakeTasks(), [
@@ -1024,7 +1026,7 @@ test('task graph execution persists acceptance, drives fresh inference context a
     (context) => {
       const text = JSON.stringify(context.messages);
       sawFreshContext = text.includes('revision=1') && text.includes('script [ready]');
-      sawSkill = text.includes('先读剧本，给镜头稳定编号');
+      sawSkill = text.includes(skillText);
       return fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'script' }));
     },
     fauxAssistantMessage(fauxToolCall('write_note', { title: '完整剧本', content: '开头：雨夜相遇。结尾：共同回家。' })),

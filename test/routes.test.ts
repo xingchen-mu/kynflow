@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import sharp from 'sharp';
 import type { AssetInfo, PresetInfo, Project, WorkflowDraft } from '../shared/types.ts';
+import { SkillEngine } from '../server/agent/skills.ts';
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -68,7 +69,7 @@ test('feature routes preserve HTTP behavior and existing data paths', { timeout:
     }
     assert.equal((await request('/api/agent/status')).status, 200);
     const skills = await (await request('/api/agent/skills')).json();
-    assert.equal(skills.length, 8);
+    assert.deepEqual(skills, await new SkillEngine(join(dataDir, 'skills')).list());
     assert.ok(skills.some((s: { id: string }) => s.id === 'product-photography'));
     assert.equal(await statusWithHost('/api/settings', 'untrusted.example'), 403);
     for (const path of ['/api/agent/status', '/api/agent/skills', '/api/agent/board00001/trace', '/api/agent/board00001/experiences', '/mcp']) {

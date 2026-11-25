@@ -139,7 +139,8 @@ test('skills discover user extensions and confine references including symlinks'
   await symlink(join(dir, 'secret.txt'), join(root, 'custom', 'references', 'escape.txt'));
   const engine = new SkillEngine(root);
   const catalog = await engine.list();
-  assert.equal(catalog.filter((s) => s.source === 'builtin').length, 8);
+  const builtins = await new SkillEngine(join(dir, 'empty')).list();
+  assert.deepEqual(catalog.filter((s) => s.source === 'builtin'), builtins, 'user extensions preserve the builtin catalog');
   assert.equal(catalog.find((s) => s.id === 'custom')?.description, '水下产品拍摄');
   assert.match(await engine.read('custom'), /折射/);
   assert.equal(await engine.read('custom', 'references/lighting.md'), '检查边缘光');

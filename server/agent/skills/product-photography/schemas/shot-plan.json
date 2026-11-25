@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "产品拍摄计划（创作记录，不是工具调用参数）",
+  "type": "object",
+  "required": ["purpose", "referenceIds", "lockedFeatures", "material", "framing", "lighting", "background", "copySpace", "acceptanceCriteria"],
+  "properties": {
+    "purpose": { "type": "string", "minLength": 1 },
+    "referenceIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "lockedFeatures": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "material": { "type": "string", "minLength": 1 },
+    "framing": { "type": "string", "minLength": 1 },
+    "lighting": { "type": "string", "minLength": 1 },
+    "background": { "type": "string", "minLength": 1 },
+    "copySpace": { "type": "string", "minLength": 1 },
+    "acceptanceCriteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "dimension", "description", "threshold"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "dimension": { "enum": ["instruction", "identity", "composition", "quality", "text"] },
+          "description": { "type": "string", "minLength": 1 },
+          "threshold": { "type": "number", "minimum": 0, "maximum": 100 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
