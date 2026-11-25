@@ -1087,7 +1087,7 @@ test('independent visual critic sees images and criteria without creator dialogu
   const board = await projects.create('harness-critic');
   await projects.patchItems(board.id, { upsert: [
     { id: 'critic-ref', kind: 'image', asset: refAsset, x: 0, y: 0, w: 80, h: 80, createdAt: 1 },
-    { id: 'critic-out', kind: 'image', asset: outAsset, x: 100, y: 0, w: 80, h: 80, createdAt: 1 },
+    { id: 'critic-out', kind: 'image', asset: outAsset, name: 'PRIVATE-CREATOR-NAME', review: { verdict: 'pass', note: 'SELF-REVIEW-PASS', at: 1 }, request: { op: 'image.generate', model: 'qwen', prompt: 'PRIVATE-GENERATION-PROMPT', aspect: '1:1', quality: '1k' }, x: 100, y: 0, w: 80, h: 80, createdAt: 1 },
   ] });
   let isolated = false;
   const { hub } = await hubWith(fakeTasks(), [
@@ -1100,8 +1100,9 @@ test('independent visual critic sees images and criteria without creator dialogu
     async () => { await sleep(3200); return fauxAssistantMessage(fauxToolCall('visual_critic', { id: 'critic-out', task_id: 'shot' })); },
     (context) => {
       const text = JSON.stringify(context.messages);
-      isolated = !text.includes('private-creator-dialogue') && text.includes('参考人物在门左侧') && text.includes('image');
-      return say(JSON.stringify({ scores: { instruction: { score: 95, evidence: '人物在左侧' }, identity: { score: 58, evidence: '参考短发，输出长发' }, quality: { score: 99, evidence: '图像清晰' } }, reason: 'subject_mismatch', diagnosis: '人物发型改变' }));
+      isolated = !['private-creator-dialogue', 'PRIVATE-CREATOR-NAME', 'SELF-REVIEW-PASS', 'PRIVATE-GENERATION-PROMPT'].some((secret) => text.includes(secret)) && text.includes('参考人物在门左侧') && text.includes('人物一致') && text.includes('image');
+      const payload = JSON.parse((context.messages.find((message) => message.role === 'user')!.content as { type: string; text?: string }[]).find((block) => block.type === 'text')!.text!);
+      return say(JSON.stringify({ checks: payload.criteria.map((criterion: { id: string; dimension: string }) => ({ criterionId: criterion.id, score: criterion.dimension === 'identity' ? 58 : 99, evidence: criterion.dimension === 'identity' ? '参考短发，输出长发' : '画面清晰，人物在左侧', visibility: 'observed' })), diagnosis: '人物发型改变' }));
     },
     async () => fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: (await hub.taskGraph(board.id)).revision, id: 'shot', evidence: [{ criterionId: 'same-face', note: '自称通过' }] })),
     say('人物不一致，需要保留构图并用参考图修复'),
@@ -1110,7 +1111,7 @@ test('independent visual critic sees images and criteria without creator dialogu
   const view = await settled(hub, board.id);
   assert.equal(isolated, true, JSON.stringify(view.entries));
   const item = (await projects.get(board.id))!.items.find((i) => i.id === 'critic-out')!;
-  assert.equal(item.critic?.verdict, 'fail');
+  assert.equal(item.critic?.verdict, 'fail', JSON.stringify(view.entries));
   assert.equal(item.critic?.scores.identity?.score, 58);
   assert.match(item.critic!.repair, /参考图/);
   assert.equal(view.taskGraph?.tasks[0].status, 'failed');
@@ -1228,7 +1229,7 @@ test('per-run traces preserve observable inputs and outputs and accept scoped hu
   const call = trace.events.find((entry) => entry.type === 'tool_start' && entry.tool === 'write_note');
   assert.deepEqual(call?.arguments, { title: '分镜', content: 'S01 窗边，S02 门口。' });
   assert.ok(trace.usage.inputTokens > 0 && trace.usage.outputTokens > 0);
-  assert.match(trace.promptVersion, /^agent-v2-enhanced-/);
+  assert.match(trace.promptVersion, /^agent-v3-enhanced-targeted-/);
   await hub.newSession(board.id);
   const feedback = await hub.traceFeedback(board.id, trace.runId, { verdict: 'accepted', assetIds: trace.outputs, comment: '分镜符合要求', source: 'agent' });
   assert.equal(feedback.outcome.basis, 'user');

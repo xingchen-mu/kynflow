@@ -18,7 +18,7 @@ import { MOCK_PROTOCOL_INSTRUCTIONS } from './protocol.ts';
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Call in an isolated worker with its own DATA_DIR. Never reuses the owner's boards or ComfyUI. */
-export async function runBenchmarkCase(spec: AgentBenchmarkCase, options: { mode: 'scripted' | 'live'; profile: AgentHarnessProfile }) {
+export async function runBenchmarkCase(spec: AgentBenchmarkCase, options: { mode: 'scripted' | 'live'; profile: AgentHarnessProfile; enhancement?: 'legacy' | 'targeted' }) {
   const assets = new AssetStore();
   const projects = new ProjectStore();
   await Promise.all([assets.init(), projects.init()]);
@@ -45,7 +45,7 @@ export async function runBenchmarkCase(spec: AgentBenchmarkCase, options: { mode
     capabilities: async () => ({ comfyOnline: spec.setup !== 'offline', comfyUrl: mock.url,
       features: unavailable, models: {} }),
     changed: () => {}, commercialOnly: () => false };
-  const opts: AgentHubOptions = { profile: options.profile, generationEnvironment: 'mock', evaluationInstructions: MOCK_PROTOCOL_INSTRUCTIONS, budget: { ...spec.budget, maxOutputTokens: 2500 } };
+  const opts: AgentHubOptions = { profile: options.profile, enhancement: options.enhancement, generationEnvironment: 'mock', evaluationInstructions: MOCK_PROTOCOL_INSTRUCTIONS, budget: { ...spec.budget, maxOutputTokens: 2500 } };
   let settings: SettingsStore | undefined;
   if (options.mode === 'scripted') {
     const faux = fauxProvider({ provider: 'benchmark', models: [{ id: 'scripted-v1', input: ['text', 'image'], contextWindow: 200000 }] });

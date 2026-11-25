@@ -22,6 +22,10 @@ import { redactTraceText } from '../server/agent/trace/redact.ts';
 const args = process.argv.slice(2);
 if (!args.includes('--real-gpu')) throw new Error('This test uses the configured GPU. Pass --real-gpu to opt in.');
 const value = (name: string) => { const at = args.indexOf(name); return at < 0 ? undefined : args[at + 1]; };
+const enhancement = value('--enhancement') ?? 'targeted';
+if (enhancement !== 'legacy' && enhancement !== 'targeted') throw new Error('Use --enhancement legacy|targeted');
+const fixedSeed = value('--seed') === undefined ? undefined : Number(value('--seed'));
+if (fixedSeed !== undefined && (!Number.isSafeInteger(fixedSeed) || fixedSeed < 0)) throw new Error('Use a non-negative safe integer seed');
 const output = gpuReportPath(value('--output') ?? 'output/agent-gpu-evaluation.json');
 const artifactDirectory = join(dirname(output), `${basename(output, '.json')}-assets`);
 await mkdir(artifactDirectory, { recursive: true });
@@ -51,10 +55,10 @@ const project = await projects.create('Real GPU agent evaluation');
 const tasks = new TaskManager(comfy, assets, (id) => workflows.get(id) ?? presets.get(id), capabilities.cachedObjectInfo);
 const budget = new GpuSubmissionBudget();
 const submit = tasks.create.bind(tasks);
-tasks.create = (request, id) => budget.submit(() => submit(request, id));
+tasks.create = (request, id) => budget.submit(() => submit(fixedSeed === undefined ? request : { ...request, seed: fixedSeed }, id));
 const hub = new AgentHub({ assets, projects, tasks, workflows: () => [...workflows.list(), ...presets.list()], capabilities: () => capabilities.get(), changed: () => {}, commercialOnly: () => Boolean(settings.value.commercialOnly) }, (event) => {
   if (event.entry?.kind === 'tool' && event.entry.status !== 'running') console.log(`tool ${event.entry.tool}: ${event.entry.status}`);
-}, { profile: 'enhanced', generationEnvironment: 'comfyui', budget: { toolCalls: 18, modelCalls: 20, tokens: 240000, durationMs: 900000, maxOutputTokens: 2500 } }, settings);
+}, { profile: 'enhanced', enhancement, generationEnvironment: 'comfyui', budget: { toolCalls: 18, modelCalls: 20, tokens: 240000, durationMs: 900000, maxOutputTokens: 2500 } }, settings);
 comfy.connect((event) => tasks.onComfyEvent(event), (online) => { if (online) tasks.onReconnect(); });
 const poll = setInterval(() => tasks.onReconnect(), 3000);
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -138,7 +142,7 @@ finally {
   let revision = 'unknown';
   try { revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { /* source archive */ }
   const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim().length > 0;
-  const report = { version: 1, at: new Date().toISOString(), revision, dirty, model: settings.agentConfig().model, comfyUI: comfyVersion, gpu, suppliedInput: value('--input') ? resolve(value('--input')!) : undefined,
+  const report = { version: 1, at: new Date().toISOString(), revision, dirty, enhancement, fixedSeed, model: settings.agentConfig().model, comfyUI: comfyVersion, gpu, suppliedInput: value('--input') ? resolve(value('--input')!) : undefined,
     generationEnvironment: 'comfyui', executionPassed: !error && phases.length >= 2 && phases.every((phase) => phase.executionPassed), error, phases, images,
     interpretation: 'Small real-GPU end-to-end validation. Agent and independent model judgments are not human-confirmed quality scores, and this is not a paired capability benchmark.' };
   // codeql[js/http-to-file-access] Intentional JSON telemetry archive: remote labels are bounded/validated; only the local CLI selects the .json destination. This file is never executed.

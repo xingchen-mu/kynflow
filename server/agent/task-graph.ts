@@ -18,13 +18,15 @@ function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function visualCriterionPass(task: AgentTask, criterion: AgentAcceptanceCriterion, items: Map<string, CanvasItem>): boolean {
+function visualCriterionPass(task: AgentTask, criterion: AgentAcceptanceCriterion, items: Map<string, CanvasItem>, legacy = false): boolean {
   if (!criterion.dimension) return true;
   return task.outputs.every((id) => {
     const item = items.get(id);
     const critique = item?.critic;
-    const score = critique?.scores[criterion.dimension!]?.score;
     const references = task.inputs.filter((input) => ['image', 'video'].includes(items.get(input)?.kind ?? ''));
+    const check = critique?.checks?.find((check) => check.id === criterion.id);
+    const score = critique?.assessmentVersion === 'criteria-v2' ? check?.score : critique?.scores[criterion.dimension!]?.score;
+    if (!legacy && (critique?.assessmentVersion !== 'criteria-v2' || !check || check.dimension !== criterion.dimension || check.description !== criterion.description.trim() || (check.scope ?? 'whole_media') !== (criterion.scope ?? 'whole_media') || check.verdict !== 'pass' || check.visibility !== 'observed' || check.score < (criterion.threshold ?? 80))) return false;
     return critique?.verdict === 'pass' && critique.assetId === item?.asset?.id && critique.objective === task.objective
       && (criterion.dimension !== 'identity' || critique.referenceIds.length > 0)
       && references.every((ref) => critique.referenceIds.includes(ref) && critique.referenceAssets?.[ref] === items.get(ref)?.asset?.id)
@@ -33,7 +35,7 @@ function visualCriterionPass(task: AgentTask, criterion: AgentAcceptanceCriterio
 }
 
 /** Pure validation and transition logic: rejected updates never mutate the saved graph. */
-export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction, items: CanvasItem[]): AgentTaskGraph {
+export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction, items: CanvasItem[], legacyVisualAcceptance = false): AgentTaskGraph {
   check(action && ['plan', 'start', 'retry', 'fail', 'outputs', 'complete'].includes(action.action), '未知任务图操作');
   check(action.revision === current.revision, '任务图已更新，请先用 read_task_graph 读取最新 revision');
   const graph = structuredClone(current);
@@ -58,6 +60,7 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
         criteria.add(c.id);
         if (c.dimension !== undefined) check(VISUAL_DIMENSIONS.includes(c.dimension), '未知视觉验收维度');
         if (c.threshold !== undefined) check(c.dimension && Number.isFinite(c.threshold) && c.threshold >= 0 && c.threshold <= 100, '视觉阈值必须是 0–100');
+        if (c.scope !== undefined) check(c.dimension === 'temporal' && ['whole_media', 'sampled_frames'].includes(c.scope), '抽样验收范围只适用于时序条件');
       }
       const maxAttempts = t.maxAttempts ?? 3;
       check(Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 5, '任务尝试上限必须是 1–5');
@@ -131,7 +134,7 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
       for (const c of task.acceptanceCriteria) {
         check(action.evidence.some((e) => e.criterionId === c.id && typeof e.note === 'string' && e.note.trim() && e.note.length <= 1000), `缺少验收证据：${c.id}`);
         if (c.dimension) {
-          check(visualCriterionPass(task, c, knownItems), `视觉硬性约束未通过独立审查：${c.id}`);
+          check(visualCriterionPass(task, c, knownItems, legacyVisualAcceptance), `视觉硬性约束未通过独立审查：${c.id}`);
         }
       }
       task.evidence = structuredClone(action.evidence);
@@ -174,7 +177,7 @@ export function recoverTaskGraph(saved?: AgentTaskGraph): AgentTaskGraph {
 }
 
 /** External generation failures and deleted/rejected outputs cannot leave a task looking complete. */
-export function reconcileTaskGraph(current: AgentTaskGraph, items: CanvasItem[]): AgentTaskGraph {
+export function reconcileTaskGraph(current: AgentTaskGraph, items: CanvasItem[], legacyVisualAcceptance = false): AgentTaskGraph {
   const graph = structuredClone(current);
   const byId = new Map(items.map((i) => [i.id, i]));
   let changed = false;
@@ -183,7 +186,7 @@ export function reconcileTaskGraph(current: AgentTaskGraph, items: CanvasItem[])
     const bad = task.outputs.find((id) => {
       const item = byId.get(id);
       return !item || item.error || item.critic?.verdict === 'fail' || item.review?.verdict === 'fail' || (task.status === 'completed' && !item.asset && !item.text?.trim());
-    }) ?? (task.status === 'completed' && task.acceptanceCriteria.some((c) => !visualCriterionPass(task, c, byId)) ? task.outputs[0] : undefined);
+    }) ?? (task.status === 'completed' && task.acceptanceCriteria.some((c) => !visualCriterionPass(task, c, byId, legacyVisualAcceptance)) ? task.outputs[0] : undefined);
     if (bad) {
       task.status = 'failed';
       task.error = `输出 ${bad} 已丢失、失败或未通过审查；检查后 retry，保留已有生成结果以免重复提交`;

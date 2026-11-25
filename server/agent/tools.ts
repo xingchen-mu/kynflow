@@ -60,6 +60,7 @@ export interface ToolContext {
   projectId: string;
   /** Internal harness operations are deliberately absent from external MCP calls. */
   harness?: {
+    enhancement: 'legacy' | 'targeted';
     sessionId: string;
     graph(): AgentTaskGraph;
     updateGraph(action: TaskGraphAction): Promise<AgentTaskGraph>;

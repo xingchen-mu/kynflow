@@ -35,13 +35,13 @@ import { type CanvasTool, type Json, type ToolContext, type ToolOutput, canvasTo
 import { writeJson } from './write.ts';
 import { type MemoryOp, MemoryStore, describeMemory, memoryBlock, memoryPromotions } from './memory.ts';
 import { createEmbedder } from './embeddings.ts';
-import type { AgentExperience, AgentTask, AgentTaskGraph, AgentTraceEvent, VisualCritique, VisualDimension, AgentHarnessProfile } from '../../shared/types.ts';
+import type { AgentExperience, AgentTask, AgentTaskGraph, AgentTraceEvent, VisualCritique, VisualDimension, AgentHarnessProfile, VisualCriterion } from '../../shared/types.ts';
 import { emptyTaskGraph, changeTaskGraph, recoverTaskGraph, reconcileTaskGraph } from './task-graph.ts';
 import { SkillEngine, defaultSkillsRoot } from './skills.ts';
 import { ExperienceStore } from './experience.ts';
 import { harnessTools } from './harness-tools.ts';
-import { CRITIC_PROMPT, parseCritique } from './visual-critic.ts';
-import { buildTaskContext } from './context.ts';
+import { CRITIC_PROMPT, STRUCTURED_CRITIC_PROMPT, parseCritique, parseStructuredCritique } from './visual-critic.ts';
+import { buildTaskContext, buildFocusedContext } from './context.ts';
 import { rankWorkflows } from './router.ts';
 import { AgentTraceStore } from './trace/store.ts';
 import { AgentTraceRecorder } from './trace/recorder.ts';
@@ -54,6 +54,8 @@ export interface AgentHubOptions {
   clearAt?: number;
   /** Evaluation ablation; normal app sessions use enhanced. */
   profile?: AgentHarnessProfile;
+  /** Stage-one control retains the original critic/context; normal sessions use targeted. */
+  enhancement?: 'legacy' | 'targeted';
   generationEnvironment?: 'comfyui' | 'mock';
   /** Runner-supplied environment contract; absent in normal application sessions. */
   evaluationInstructions?: string;
@@ -66,6 +68,8 @@ export interface CritiqueRequest {
   referenceIds: string[];
   labels: string[];
   images: { data: string; mimeType: string }[];
+  criteria?: VisualCriterion[];
+  coverage?: 'image' | 'sampled_video';
 }
 
 const DEFAULT_MODEL = 'deepseek/deepseek-flash';
@@ -150,6 +154,8 @@ interface Session {
   done?: Promise<void>;
   /** Board point at the center of the user's view when they last sent a message. */
   view?: { x: number; y: number };
+  selection?: string[];
+  intent?: string;
   /** Aborted (and replaced) when a message arrives mid-run. */
   interrupt: AbortController;
   /** Streaming text waiting to be pushed (batched, so a fast model does not flood the event stream). */
@@ -584,7 +590,7 @@ export class AgentHub {
     this.watchFile = join(this.dir, 'watches.json');
     this.memory = new MemoryStore(this.dir, createEmbedder(settings?.agentConfig().embedding));
     this.models = opts.models ?? builtinModels();
-    this.tools = [...canvasTools(deps, new ResultWriter(deps)), ...(opts.profile !== 'baseline' ? harnessTools(deps, this.skills, this.experience) : [])];
+    this.tools = [...canvasTools(deps, new ResultWriter(deps)), ...(opts.profile !== 'baseline' ? harnessTools(deps, this.skills, this.experience, opts.enhancement) : [])];
     this.labels = new Map(this.tools.map((t) => [t.name, t]));
     this.configureModel();
     deps.tasks.on('task', (t: Task) => this.onTask(t));
@@ -749,6 +755,8 @@ export class AgentHub {
     if (!text) throw new RequestError(t('请输入内容'));
     const s = await this.session(projectId);
     s.autoRuns = 0;
+    s.selection = input.selection ?? [];
+    s.intent = text.slice(0, MAX_MESSAGE);
     const { view } = input;
     if (view && Number.isFinite(view.x) && Number.isFinite(view.y)) s.view = { x: view.x, y: view.y };
     this.skipQuestions(s);
@@ -1417,6 +1425,7 @@ export class AgentHub {
       interrupt: s.interrupt.signal,
       ...(this.opts.profile !== 'baseline' ? { workflowRanks: async (pool: Parameters<typeof rankWorkflows>[0]) => rankWorkflows(pool, this.deps.tasks.list(), await this.experience.list()) } : {}),
       harness: {
+        enhancement: this.opts.enhancement ?? 'targeted',
         sessionId: s.sessionId,
         graph: () => structuredClone(s.taskGraph),
         updateGraph: async (action) => {
@@ -1424,7 +1433,7 @@ export class AgentHub {
           const validOutputs = new Set(s.taskGraph.tasks.flatMap((t) => t.outputs));
           const expired = new Set(s.taskGraph.tasks.flatMap((t) => t.previousOutputs ?? []).filter((id) => !validOutputs.has(id)));
           if (action.action === 'start' && s.taskGraph.tasks.find((t) => t.id === action.id)?.inputs.some((id) => expired.has(id))) throw new Error('任务输入引用了已失效的旧输出，先 plan 更新为上游当前输出');
-          const next = changeTaskGraph(s.taskGraph, action, board.items);
+          const next = changeTaskGraph(s.taskGraph, action, board.items, this.opts.enhancement === 'legacy');
           s.taskGraph = next;
           await this.save(s);
           this.emit({ projectId: s.projectId, taskGraph: next });
@@ -1705,9 +1714,9 @@ export class AgentHub {
 
   private async harnessContext(s: Session): Promise<string> {
     if (this.opts.profile === 'baseline') return '';
-    if (!s.taskGraph.tasks.length && !s.activeSkills.length) return '';
+    if (!s.taskGraph.tasks.length && !s.activeSkills.length && (this.opts.enhancement === 'legacy' || !s.selection?.length)) return '';
     const board = await readBoard(this.deps, s.projectId);
-    const reconciled = reconcileTaskGraph(s.taskGraph, board.items);
+    const reconciled = reconcileTaskGraph(s.taskGraph, board.items, this.opts.enhancement === 'legacy');
     if (reconciled !== s.taskGraph) {
       s.taskGraph = reconciled;
       await this.save(s);
@@ -1718,24 +1727,31 @@ export class AgentHub {
       Promise.all(s.activeSkills.map(async (id) => ({ id, text: await this.skills.read(id).catch(() => '') }))),
       active ? this.experience.search(active.objective, 3) : Promise.resolve([]),
     ]);
-    return buildTaskContext(s.taskGraph, board.items, skills, experiences, (item) => describeItem(this.deps, item, 220));
+    if (this.opts.enhancement === 'legacy') return buildTaskContext(s.taskGraph, board.items, skills, experiences, (item) => describeItem(this.deps, item, 220));
+    const context = buildFocusedContext({ graph: s.taskGraph, items: board.items, skills, experiences, selection: s.selection, intent: s.intent }, (item) => describeItem(this.deps, item, 220));
+    this.recordTrace(s, { type: 'context', result: { characters: context.characters, itemIds: context.itemIds, omittedItems: context.omittedItems, omittedSections: context.omittedSections, focusTaskId: context.focusTaskId ?? null } });
+    return context.text;
   }
 
   /** Separate request with images and criteria only: no creator dialogue or executable tools. */
   private async critique(s: Session, request: CritiqueRequest, signal?: AbortSignal): Promise<VisualCritique> {
     if (!this.model || !this.vision) throw new Error('独立视觉审查需要支持图片输入的模型');
+    this.checkRunBudget(s);
+    const structured = this.opts.enhancement !== 'legacy';
+    if (structured && !request.criteria?.length) throw new Error('独立审查需要逐条验收标准');
     const reply = await this.models.completeSimple(this.model, {
-      systemPrompt: CRITIC_PROMPT,
+      systemPrompt: structured ? STRUCTURED_CRITIC_PROMPT : CRITIC_PROMPT,
       messages: [{ role: 'user', timestamp: Date.now(), content: [
-        { type: 'text', text: JSON.stringify({ objective: request.objective, thresholds: request.thresholds, labels: request.labels }) },
+        { type: 'text', text: JSON.stringify({ objective: request.objective, ...(structured ? { criteria: request.criteria, coverage: request.coverage } : { thresholds: request.thresholds }), labels: request.labels }) },
         ...request.images.map((image): ImageContent => ({ type: 'image', ...image })),
       ] }],
-    }, { signal, maxTokens: 3000 });
+    }, { signal: structured ? AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(60000)]) : signal, maxTokens: structured ? 4000 : 3000 });
     this.addUsage(s, reply);
-    this.recordTrace(s, { type: 'model', tool: 'visual_critic', ...this.traceUsage(reply), ok: !['error', 'aborted', 'length'].includes(reply.stopReason) });
+    this.recordTrace(s, { type: 'model', tool: 'visual_critic', ...this.traceUsage(reply), ok: !['error', 'aborted', 'length'].includes(reply.stopReason), ...(['error', 'aborted', 'length'].includes(reply.stopReason) ? { error: traceError(reply.errorMessage ?? `Critic ${reply.stopReason}`) } : {}) });
     this.emit({ projectId: s.projectId, usage: s.usage });
     if (['error', 'aborted', 'length'].includes(reply.stopReason)) throw new Error('独立审查未完成，本次没有记录通过结论');
-    return parseCritique(reply.content.map((c) => c.type === 'text' ? c.text : '').join(''), { ...request, model: this.state.model });
+    const text = reply.content.map((c) => c.type === 'text' ? c.text : '').join('');
+    return structured ? parseStructuredCritique(text, { ...request, criteria: request.criteria!, model: this.state.model }) : parseCritique(text, { ...request, model: this.state.model });
   }
 
   private recordTrace(s: Session, event: Omit<AgentTraceEvent, 'id' | 'runId' | 'at'>, runId = s.runId ?? 'recovery') {
@@ -1827,8 +1843,8 @@ export class AgentHub {
     const profile = this.opts.profile ?? 'enhanced';
     await this.traceRecorder.start({ runId: s.runId, projectId: s.projectId, sessionId: s.sessionId,
       ...(automatic && parentRunId ? { parentRunId } : {}), source: automatic ? 'event' : 'user',
-      userIntent: intent.replace(CONTEXT, ''), model: this.state.model, profile,
-      promptVersion: `agent-v2-${profile}-${createHash('sha256').update(s.agent.state.systemPrompt).digest('hex').slice(0, 12)}`,
+      userIntent: intent.replace(CONTEXT, ''), model: this.state.model, profile, enhancement: this.opts.enhancement ?? 'targeted',
+      promptVersion: `agent-v3-${profile}-${this.opts.enhancement ?? 'targeted'}-${createHash('sha256').update(s.agent.state.systemPrompt).digest('hex').slice(0, 12)}`,
       generationEnvironment: this.opts.generationEnvironment ?? 'comfyui', startedAt: s.runStartedAt,
     }).catch((error) => console.error('agent: could not create run trace', error));
     this.recordTrace(s, { type: 'run_start' });
