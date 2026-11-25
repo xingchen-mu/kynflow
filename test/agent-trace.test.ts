@@ -10,6 +10,8 @@ import { redactTraceText, traceError, traceValue } from '../server/agent/trace/r
 import { CORE_BENCHMARK_CASES } from '../server/agent/evaluation/fixtures/core.ts';
 import { CAPABILITY_DIMENSIONS } from '../server/agent/evaluation/types.ts';
 import { benchmarkSummary, compareBenchmark, evaluateBenchmark } from '../server/agent/evaluation/metrics.ts';
+import { AgentTaskEvents } from '../server/agent/runtime/events.ts';
+import type { Task } from '../shared/types.ts';
 
 const metadata = { projectId: 'project-one', sessionId: 'session-one', runId: 'run-original', userIntent: '把原图放大，不要重画', model: 'test/model', profile: 'enhanced' as const, source: 'user' as const, generationEnvironment: 'mock' as const, promptVersion: 'test-v1', startedAt: 1 };
 const event = (type: AgentTraceEvent['type'], extra: Partial<AgentTraceEvent> = {}): AgentTraceEvent => ({ id: `event-${type}`, runId: metadata.runId, at: 2, type, ...extra });
@@ -135,6 +137,21 @@ test('run trace truncation is explicit and cannot be scored as complete executio
   assert.equal(trace.events.length, 2000);
   assert.equal(trace.droppedEvents, 1);
   assert.ok(evaluateBenchmark(CORE_BENCHMARK_CASES[0], { traces: [trace], before: [], after: [], tasks: [] }, 'enhanced', 'scripted').failures.some((failure) => failure.includes('truncated')));
+});
+
+test('owned late task events update the originating run once, including after restart and event truncation', async (t) => {
+  const { store, recorder } = await fixture(t);
+  await recorder.append(metadata.projectId, event('run_end', { ok: true }));
+  const job: Task = { id: 'owned-task', request: { op: 'image.generate', model: 'zimage', prompt: 'cup', aspect: '1:1', quality: '1k' }, status: 'done', promptId: 'prompt', submissionState: 'accepted', progress: 1, expected: { kind: 'image', width: 512, height: 512 }, results: [], seed: 1, createdAt: 1, startedAt: 1000, finishedAt: 2500, agentOwner: { projectId: metadata.projectId, sessionId: metadata.sessionId, runId: metadata.runId, operationKey: 'original-operation' } };
+  await new AgentTaskEvents(recorder).observe(job);
+  await store.update(metadata.projectId, metadata.runId, (trace) => { trace.events = Array.from({ length: 2000 }, (_, index) => event('context', { id: `context-${index}` })); });
+  await new AgentTaskEvents(recorder).observe(job);
+  const trace = (await store.get(metadata.projectId, metadata.runId))!;
+  assert.equal(trace.usage.generations, 1);
+  assert.equal(trace.usage.gpuSeconds, 1.5);
+  assert.equal(trace.execution, 'completed');
+  assert.equal(trace.sessionId, metadata.sessionId);
+  assert.deepEqual(trace.completedTaskIds, ['owned-task']);
 });
 
 test('planning accepts a complete ordered note while rejecting missing or reversed stages', async (t) => {

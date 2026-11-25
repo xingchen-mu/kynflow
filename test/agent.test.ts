@@ -64,7 +64,7 @@ beforeEach(async () => {
   await Promise.all([projects.init(), assets.init()]);
 });
 
-async function hubWith(tasks: ReturnType<typeof fakeTasks>, responses: Step[], opts: { compactAt?: number; clearAt?: number; commercial?: boolean; approvalMode?: 'always' | 'prompts' } = {}) {
+async function hubWith(tasks: ReturnType<typeof fakeTasks>, responses: Step[], opts: { compactAt?: number; clearAt?: number; commercial?: boolean; approvalMode?: 'always' | 'prompts'; budget?: NonNullable<ConstructorParameters<typeof AgentHub>[2]>['budget']; sessionGenerationLimit?: number } = {}) {
   const faux = fauxProvider({ provider: 'faux', models: [{ id: 'faux-1', input: ['text', 'image'], contextWindow: 200_000 }] });
   faux.setResponses(responses);
   const models = createModels();
@@ -83,7 +83,7 @@ async function hubWith(tasks: ReturnType<typeof fakeTasks>, responses: Step[], o
     : undefined;
   // What the panel was sent, rows that are not saved with the conversation included.
   const emitted: AgentEventData[] = [];
-  const hub = new AgentHub(deps, (e) => emitted.push(e), { models, model: 'faux/faux-1', compactAt: opts.compactAt, clearAt: opts.clearAt }, settings);
+  const hub = new AgentHub(deps, (e) => emitted.push(e), { models, model: 'faux/faux-1', compactAt: opts.compactAt, clearAt: opts.clearAt, budget: opts.budget, sessionGenerationLimit: opts.sessionGenerationLimit }, settings);
   await hub.init();
   assert.equal(hub.status.ready, true, hub.status.reason ?? '');
   return { hub, faux, emitted };
@@ -1229,7 +1229,7 @@ test('per-run traces preserve observable inputs and outputs and accept scoped hu
   const call = trace.events.find((entry) => entry.type === 'tool_start' && entry.tool === 'write_note');
   assert.deepEqual(call?.arguments, { title: '分镜', content: 'S01 窗边，S02 门口。' });
   assert.ok(trace.usage.inputTokens > 0 && trace.usage.outputTokens > 0);
-  assert.match(trace.promptVersion, /^agent-v3-enhanced-targeted-/);
+  assert.match(trace.promptVersion, /^agent-v4-enhanced-targeted-/);
   await hub.newSession(board.id);
   const feedback = await hub.traceFeedback(board.id, trace.runId, { verdict: 'accepted', assetIds: trace.outputs, comment: '分镜符合要求', source: 'agent' });
   assert.equal(feedback.outcome.basis, 'user');
@@ -1265,4 +1265,120 @@ test('messages accepted while the final trace is saving run before the session b
   assert.deepEqual(view.entries.filter((entry) => entry.kind === 'assistant').map((entry) => entry.kind === 'assistant' && entry.text), ['第一段完成', '第二段完成']);
   const { hub: restarted } = await hubWith(fakeTasks(), []);
   assert.ok((await restarted.view(board.id)).entries.some((entry) => entry.kind === 'assistant' && entry.text === '第二段完成'));
+});
+
+test('production submission budgets count batch members and survive a fresh hub in the same session', async () => {
+  const board = await projects.create('session generation budget');
+  const tasks = fakeTasks();
+  const { hub } = await hubWith(tasks, [fauxAssistantMessage(fauxToolCall('generate_image', { prompt: 'A cup', count: 2 })), say('报告已提交的部分')], { sessionGenerationLimit: 1 });
+  await hub.send(board.id, { text: '生成两张' });
+  await settled(hub, board.id);
+  assert.equal(tasks.created.length, 1);
+  assert.equal((await savedConversation(board.id, (text) => JSON.parse(text).generationReservations === 1)).generationReservations, 1);
+  const { hub: resumed } = await hubWith(tasks, [fauxAssistantMessage(fauxToolCall('generate_image', { prompt: 'Another cup' })), say('预算已用完，不再提交')], { sessionGenerationLimit: 1 });
+  await resumed.send(board.id, { text: '继续生成' });
+  await settled(resumed, board.id);
+  assert.equal(tasks.created.length, 1, 'a new run or server process must not reset the session submission budget');
+});
+
+test('a run tool budget blocks later writes without preventing a new explicit user run', async () => {
+  const board = await projects.create('run boundary');
+  const { hub, faux } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('write_note', { title: 'A', content: 'first' })),
+    fauxAssistantMessage(fauxToolCall('write_note', { title: 'B', content: 'must not be written' })),
+  ], { budget: { toolCalls: 1 } });
+  await hub.send(board.id, { text: '写两条' });
+  await settled(hub, board.id);
+  assert.deepEqual((await projects.get(board.id))!.items.map((item) => item.name), ['A']);
+  faux.setResponses([fauxAssistantMessage(fauxToolCall('write_note', { title: 'C', content: 'new user request' })), say('已完成')]);
+  await hub.send(board.id, { text: '明确的新请求，只写 C' });
+  await settled(hub, board.id);
+  assert.deepEqual((await projects.get(board.id))!.items.map((item) => item.name), ['A', 'C']);
+  assert.equal((await hub.runTraces(board.id)).length, 2);
+});
+
+test('structured tool failures reach model context and trace while panel errors remain readable', async () => {
+  const board = await projects.create('typed tool failure');
+  let modelSawCode = false;
+  const { hub } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('read_board', { ids: ['not-a-node'] })),
+    (context) => { modelSawCode = JSON.stringify(context.messages).includes('INVALID_ARGUMENT'); return say('先检查参数'); },
+  ]);
+  await hub.send(board.id, { text: '读取不存在节点' });
+  const view = await settled(hub, board.id);
+  assert.equal(modelSawCode, true);
+  const error = view.entries.find((entry) => entry.kind === 'tool' && entry.status === 'error');
+  assert.ok(error?.kind === 'tool');
+  assert.doesNotMatch(error.summary, /toolError/);
+  assert.equal((await hub.runTraces(board.id))[0].events.find((event) => event.type === 'tool_end' && !event.ok)?.error?.code, 'INVALID_ARGUMENT');
+});
+
+test('formal validation and local user feedback bind to current session and artifact before completion', async () => {
+  const board = await projects.create('formal-validation');
+  await projects.patchItems(board.id, { upsert: [{ id: 'json-output', kind: 'text', text: '{"title":"雨夜"}', x: 0, y: 0, w: 100, h: 100, createdAt: 1 }] });
+  const criteria: { id: string; description: string; validator: import('../server/agent/tools.ts').Json }[] = [
+    { id: 'json', description: '有非空标题', validator: { kind: 'schema', schema: { type: 'object', required: ['title'], properties: { title: { type: 'string', minLength: 1 } } } } },
+    { id: 'taste', description: '用户认可标题', validator: { kind: 'user' } },
+  ];
+  const { hub, faux } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan: { objective: '完成标题', tasks: [{ id: 'title', objective: '完成标题', dependencies: [], acceptanceCriteria: criteria }] } })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'title' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'title', outputs: ['json-output'] })),
+    fauxAssistantMessage(fauxToolCall('validate_task', { task_id: 'title' })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: 3, id: 'title', evidence: criteria.map((criterion) => ({ criterionId: criterion.id, note: '已经检查' })) })),
+    say('结构已通过，等待用户认可。'),
+  ]);
+  await hub.send(board.id, { text: '检查标题并等我认可' });
+  const view = await settled(hub, board.id);
+  assert.equal((await hub.taskGraph(board.id)).tasks[0].status, 'reviewing');
+  const trace = (await hub.runTraces(board.id))[0];
+  assert.ok(trace.events.some((event) => event.type === 'validation' && JSON.stringify(event.result).includes('unknown')));
+  await assert.rejects(hub.taskFeedback(board.id, 'title', { sessionId: 'wrong-session', revision: 3, criterionId: 'taste', verdict: 'pass', note: '可以' }), /格式/);
+  await assert.rejects(hub.taskFeedback(board.id, 'title', { sessionId: view.sessionId, revision: 3, criterionId: 'taste', signature: 'stale', verdict: 'pass', note: '可以' }), /验收对象已改变/);
+  await hub.taskFeedback(board.id, 'title', { sessionId: view.sessionId, revision: 3, criterionId: 'taste', signature: (await hub.taskGraph(board.id)).tasks[0].reviewSignatures?.taste, verdict: 'pass', note: '我认可当前标题' });
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: 4, id: 'title', evidence: criteria.map((criterion) => ({ criterionId: criterion.id, note: '已核对当前版本' })) })),
+    say('完成'),
+  ]);
+  await hub.send(board.id, { text: '按验收结果完成' });
+  await settled(hub, board.id);
+  assert.equal((await hub.taskGraph(board.id)).tasks[0].status, 'completed');
+  const candidates = await hub.experiences(board.id);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].confirmation, 'agent');
+  const runs = await hub.runTraces(board.id);
+  const completedRun = runs.find((run) => run.events.some((event) => event.type === 'validation' && event.ok))!;
+  await hub.traceFeedback(board.id, completedRun.runId, { verdict: 'accepted', comment: '最终结果已确认' });
+  assert.equal((await hub.experiences(board.id))[0].trust, 'user-confirmed');
+  const graph = await hub.taskGraph(board.id);
+  await hub.taskFeedback(board.id, 'title', { sessionId: view.sessionId, revision: graph.revision, criterionId: 'taste', signature: graph.tasks[0].reviewSignatures?.taste, verdict: 'fail', note: '重新看过，标题不符合我的偏好' });
+  assert.equal((await hub.taskGraph(board.id)).tasks[0].status, 'failed');
+});
+
+test('rewinding restores the skill task scope together with its saved activation', async () => {
+  const board = await projects.create('skill-rewind');
+  await projects.patchItems(board.id, { upsert: [{ id: 'body', kind: 'text', text: '完整剧本', x: 0, y: 0, w: 100, h: 100, createdAt: 1 }] });
+  const steps = ['a', 'b'].map((id) => ({ id, objective: id, dependencies: [], acceptanceCriteria: [{ id: 'body', description: '正文存在' }] }));
+  const { hub, faux } = await hubWith(fakeTasks(), [
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'plan', revision: 0, plan: { objective: '两段独立任务', tasks: steps } })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 1, id: 'a' })),
+    fauxAssistantMessage(fauxToolCall('read_skill', { id: 'storyboard' })),
+    say('任务 A 已加载分镜技能'),
+  ]);
+  await hub.send(board.id, { text: '准备任务 A' });
+  await settled(hub, board.id);
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'outputs', revision: 2, id: 'a', outputs: ['body'] })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'complete', revision: 3, id: 'a', evidence: [{ criterionId: 'body', note: '正文存在' }] })),
+    fauxAssistantMessage(fauxToolCall('update_task_graph', { action: 'start', revision: 4, id: 'b' })),
+    fauxAssistantMessage(fauxToolCall('read_skill', { id: 'product-photography' })),
+    say('任务 B 已加载产品摄影技能'),
+  ]);
+  await hub.send(board.id, { text: '完成 A 并切换到 B' });
+  const view = await settled(hub, board.id);
+  await savedConversation(board.id, (text) => JSON.parse(text).activeSkillsScope === 'b');
+  await hub.rewind(board.id, view.entries.filter((entry) => entry.kind === 'user')[1].id);
+  const saved = await savedConversation(board.id, (text) => JSON.parse(text).activeSkillsScope === 'a');
+  assert.deepEqual(saved.activeSkills, ['storyboard']);
+  assert.equal(saved.taskGraph.tasks.find((task: { id: string }) => task.id === 'b').attempts, 0);
 });

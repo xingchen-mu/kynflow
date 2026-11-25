@@ -3,6 +3,8 @@ import fs, { readdir, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentSkillInfo } from '../../shared/types.ts';
+import { createHash } from 'node:crypto';
+import { ToolExecutionError } from './tool-errors.ts';
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_SKILL_BYTES = 48_000;
@@ -75,7 +77,7 @@ export class SkillEngine {
         const directory = join(root, entry.name);
         try {
           const parsed = parseSkill(await readSkillFile(directory, 'SKILL.md'));
-          skills.set(entry.name, { id: entry.name, source, directory, ...parsed });
+          skills.set(entry.name, { id: entry.name, source, directory, version: createHash('sha256').update(JSON.stringify(parsed)).digest('hex').slice(0, 16), ...parsed });
         } catch (err) { console.warn(`agent: skipped invalid skill ${entry.name}:`, (err as Error).message); }
       }
     }
@@ -93,6 +95,28 @@ export class SkillEngine {
     if (!resource || resource === 'SKILL.md') return skill.instructions;
     if (!/^(references|schemas)\//.test(resource) || !/\.(md|json|txt)$/.test(resource)) throw new Error('只支持技能 references/ 或 schemas/ 下的文本资源');
     return readSkillFile(skill.directory, resource);
+  }
+
+  /** Deterministic lexical retrieval; a match recommends knowledge, never permissions. */
+  async match(query: string, availableTools: string[], limit = 3): Promise<AgentSkillInfo[]> {
+    const terms = [...new Set(query.toLowerCase().match(/[a-z0-9_-]{2,}|[\p{Script=Han}]/gu) ?? [])];
+    const skills = await this.list();
+    return skills.filter((skill) => skill.tools.every((tool) => availableTools.includes(tool))).map((skill) => {
+      const text = `${skill.id} ${skill.name} ${skill.description}`.toLowerCase();
+      return { skill, score: terms.reduce((score, term) => score + Number(text.includes(term)), 0) };
+    }).filter((entry) => entry.score >= 2).sort((a, b) => b.score - a.score || a.skill.id.localeCompare(b.skill.id)).slice(0, Math.max(0, Math.min(3, limit))).map((entry) => entry.skill);
+  }
+
+  async compose(ids: string[], availableTools: string[]): Promise<(AgentSkillInfo & { instructions: string })[]> {
+    const skills = await this.discover();
+    return [...new Set(ids)].slice(0, 3).map((id) => {
+      const skill = skills.find((entry) => entry.id === id);
+      if (!skill) throw new ToolExecutionError('CAPABILITY_UNAVAILABLE', `专业技能不存在：${id}`);
+      const missing = skill.tools.filter((tool) => !availableTools.includes(tool));
+      if (missing.length) throw new ToolExecutionError('CAPABILITY_UNAVAILABLE', `技能 ${id} 缺少必要工具：${missing.join(', ')}`);
+      const { directory: _directory, ...composed } = skill;
+      return composed;
+    });
   }
 
   async catalog(): Promise<string> {

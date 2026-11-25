@@ -194,6 +194,7 @@ async function saveOutput(file: { filename: string; subfolder: string; type: str
   const data = await comfy.view(file);
   const id = nanoid(12);
   const stored = id + EXT_BY_MIME[mime];
+  // codeql[js/http-to-file-access] Intentional demo asset download: locally chosen directory, generated filename and allowlisted extension; this media/document data is never executed.
   await writeFile(join(assetsDir, stored), data);
   let { width, height } = expected;
   if (mime.startsWith('image/')) {

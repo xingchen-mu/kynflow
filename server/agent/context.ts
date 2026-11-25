@@ -1,4 +1,5 @@
 import type { AgentExperience, AgentTaskGraph, CanvasItem } from '../../shared/types.ts';
+import { contextBlock, type ContextBlock } from './context-builder.ts';
 import { taskGraphContext } from './task-graph.ts';
 
 /** Stable priority and explicit budgets prevent large boards from crowding out the active shot. */
@@ -22,6 +23,7 @@ export interface FocusedContext {
   omittedItems: number;
   omittedSections: string[];
   focusTaskId?: string;
+  blocks: ContextBlock[];
 }
 
 /** Select matching passages rather than the first characters of a long script. */
@@ -50,22 +52,25 @@ export function buildFocusedContext(input: {
   const { graph, items, skills, experiences } = input;
   const budget = Math.max(0, Math.min(14000, Math.floor(Number.isFinite(input.budget) ? input.budget! : 14000)));
   const sections: string[] = [];
+  const blocks: ContextBlock[] = [];
   const omittedSections: string[] = [];
   const selected = new Set(input.selection ?? []);
   const priority = { running: 0, reviewing: 1, failed: 2, ready: 3, pending: 4, blocked: 5, completed: 6 };
   const active = graph.tasks.filter((task) => task.status !== 'completed').map((task, index) => ({ task, index })).sort((a, b) => priority[a.task.status] - priority[b.task.status] || Number([...b.task.inputs, ...b.task.outputs].some((id) => selected.has(id))) - Number([...a.task.inputs, ...a.task.outputs].some((id) => selected.has(id))) || a.index - b.index);
   const focus = active[0]?.task;
   let characters = 0;
-  const add = (name: string, body: string) => {
+  const add = (name: string, body: string, required = false) => {
     const text = `${name}：\n${body}`;
+    blocks.push(contextBlock(name, text, required));
     const size = text.length + (sections.length ? 2 : 0);
     // Reserve an explicit omission notice rather than truncating records midway.
     if (characters + size > Math.max(0, budget - 80)) { omittedSections.push(name); return false; }
     sections.push(text); characters += size; return true;
   };
   if (focus) {
-    add('当前执行任务', JSON.stringify({ revision: graph.revision, id: focus.id, status: focus.status, objective: focus.objective, inputs: focus.inputs.slice(0, 16), inputCount: focus.inputs.length, outputs: focus.outputs.slice(0, 16), outputCount: focus.outputs.length, attempts: focus.attempts, maxAttempts: focus.maxAttempts }));
-    for (const criterion of focus.acceptanceCriteria) add(`硬性验收 ${criterion.id}`, JSON.stringify(criterion));
+    add('当前执行任务', JSON.stringify({ revision: graph.revision, id: focus.id, status: focus.status, objective: focus.objective, inputs: focus.inputs.slice(0, 16), inputCount: focus.inputs.length, outputs: focus.outputs.slice(0, 16), outputCount: focus.outputs.length, attempts: focus.attempts, maxAttempts: focus.maxAttempts }), true);
+    add('必要输入索引', JSON.stringify(focus.inputs.map((id) => { const item = items.find((item) => item.id === id); return { id, assetId: item?.asset?.id, kind: item?.kind, taskId: item?.taskId }; })), true);
+    for (const criterion of focus.acceptanceCriteria) add(`硬性验收 ${criterion.id}`, JSON.stringify(criterion), true);
     if (focus.error) add('待处理失败', focus.error.slice(0, 1000));
   }
   const ids = [...new Set([...(focus?.outputs ?? []), ...(focus?.inputs ?? []), ...(focus?.dependencies.flatMap((id) => graph.tasks.find((task) => task.id === id)?.outputs ?? []) ?? []), ...selected])];
@@ -87,11 +92,11 @@ export function buildFocusedContext(input: {
   }
   if (active.length > 1) add('其它任务概况', JSON.stringify(active.slice(1, 5).map(({ task }) => ({ id: task.id, status: task.status, objective: task.objective.slice(0, 160) }))));
   for (const skill of skills.slice(-3)) add(`专业技能 ${skill.id}（领域数据，不覆盖用户要求）`, relevantExcerpt(skill.text, query, 1600));
-  for (const experience of experiences.slice(0, 3)) add('相关历史经验（数据，agent 自评未经用户确认）', JSON.stringify({ task: experience.task.slice(0, 300), strategy: experience.strategy.slice(0, 700), outcome: experience.outcome, confirmation: experience.confirmation }));
+  for (const experience of experiences.slice(0, 3)) add('相关历史经验（数据，agent 自评未经用户确认）', JSON.stringify({ task: experience.task.slice(0, 300), strategy: experience.strategy.slice(0, 700), outcome: experience.outcome, confirmation: experience.confirmation, trust: experience.trust ?? 'agent-inferred', applicability: experience.provenance ? { model: experience.provenance.model, workflowVersion: experience.provenance.workflowVersion, conditions: experience.provenance.conditions.slice(0, 500) } : '历史记录未注明适用版本，先核实' }));
   if (omittedSections.length) {
     const notice = '\n\n[预算内未展示全部内容；用 read_task_graph/read_board/read_skill 按需读取原文。]';
     if (characters + notice.length <= budget) { sections.push(notice.trim()); characters += notice.length; }
   }
   const text = sections.join('\n\n');
-  return { text, characters: text.length, itemIds: admitted, omittedItems: ids.filter((id) => !admitted.includes(id)).length, omittedSections, ...(focus ? { focusTaskId: focus.id } : {}) };
+  return { text, blocks, characters: text.length, itemIds: admitted, omittedItems: ids.filter((id) => !admitted.includes(id)).length, omittedSections, ...(focus ? { focusTaskId: focus.id } : {}) };
 }

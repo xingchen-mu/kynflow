@@ -1,5 +1,8 @@
 import type { AgentAcceptanceCriterion, AgentTask, AgentTaskGraph, CanvasItem } from '../../shared/types.ts';
 import { VISUAL_DIMENSIONS } from './visual-critic.ts';
+import { assetVersions, changedAssets } from './asset-version.ts';
+import { currentValidation } from './verification.ts';
+import type { AgentValidationResult } from '../../shared/types.ts';
 
 const TASK_ID = /^[\w-]{1,64}$/;
 export const emptyTaskGraph = (): AgentTaskGraph => ({ version: 1, revision: 0, objective: '', tasks: [] });
@@ -18,7 +21,7 @@ function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-function visualCriterionPass(task: AgentTask, criterion: AgentAcceptanceCriterion, items: Map<string, CanvasItem>, legacy = false): boolean {
+export function visualCriterionPass(task: AgentTask, criterion: AgentAcceptanceCriterion, items: Map<string, CanvasItem>, legacy = false): boolean {
   if (!criterion.dimension) return true;
   return task.outputs.every((id) => {
     const item = items.get(id);
@@ -35,7 +38,7 @@ function visualCriterionPass(task: AgentTask, criterion: AgentAcceptanceCriterio
 }
 
 /** Pure validation and transition logic: rejected updates never mutate the saved graph. */
-export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction, items: CanvasItem[], legacyVisualAcceptance = false): AgentTaskGraph {
+export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction, items: CanvasItem[], legacyVisualAcceptance = false, validation?: AgentValidationResult[]): AgentTaskGraph {
   check(action && ['plan', 'start', 'retry', 'fail', 'outputs', 'complete'].includes(action.action), '未知任务图操作');
   check(action.revision === current.revision, '任务图已更新，请先用 read_task_graph 读取最新 revision');
   const graph = structuredClone(current);
@@ -61,6 +64,15 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
         if (c.dimension !== undefined) check(VISUAL_DIMENSIONS.includes(c.dimension), '未知视觉验收维度');
         if (c.threshold !== undefined) check(c.dimension && Number.isFinite(c.threshold) && c.threshold >= 0 && c.threshold <= 100, '视觉阈值必须是 0–100');
         if (c.scope !== undefined) check(['whole_media', 'sampled_frames'].includes(c.scope) && (c.scope !== 'sampled_frames' || c.dimension === 'temporal'), '抽样验收范围只适用于时序条件');
+        if (c.validator !== undefined) {
+          check(c.validator && ['asset', 'schema', 'media', 'user'].includes(c.validator.kind), '未知验证器');
+          check(!c.dimension, '视觉条件与规格验证应分为独立验收项');
+          if (c.validator.kind === 'schema') check(c.validator.schema && typeof c.validator.schema === 'object' && !Array.isArray(c.validator.schema) && JSON.stringify(c.validator.schema).length <= 8000, '结构验证需要有界 Schema');
+          if (c.validator.kind === 'media') {
+            const { kind: _kind, ...limits } = c.validator;
+            check(Object.keys(limits).length > 0 && Object.entries(limits).every(([key, value]) => ['minWidth', 'minHeight', 'aspect', 'minDuration', 'maxDuration'].includes(key) && typeof value === 'number' && Number.isFinite(value) && value > 0), '媒体验收需要有效规格');
+          }
+        }
       }
       const maxAttempts = t.maxAttempts ?? 3;
       check(Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 5, '任务尝试上限必须是 1–5');
@@ -95,6 +107,8 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
       check(task.status === 'ready', '只能启动依赖已完成的 ready 任务');
       check(task.attempts < task.maxAttempts, '尝试预算已用完，请用 ask_user 请求用户决定');
       task.status = 'running';
+      task.invalidated = false;
+      task.inputVersions = assetVersions(task.inputs, knownItems);
       task.attempts++;
       task.error = undefined;
     } else if (action.action === 'retry') {
@@ -113,6 +127,11 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
         t.outputs = [];
         t.evidence = [];
         t.error = undefined;
+        t.invalidated = false;
+        t.inputVersions = undefined;
+        t.outputVersions = undefined;
+        t.validation = undefined;
+        t.userValidation = undefined;
       }
     } else if (action.action === 'fail') {
       check(['running', 'reviewing'].includes(task.status), '只有执行中或审查中的任务可以记为失败');
@@ -123,7 +142,7 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
       check(task.status === 'running', '先 start 任务，再提交输出');
       check(Array.isArray(action.outputs) && action.outputs.length > 0 && action.outputs.length <= 100 && action.outputs.every((id) => knownItems.has(id)), '输出必须是当前画布的节点 id');
       task.outputs = [...new Set(action.outputs)];
-      task.status = 'reviewing';
+      task.status = task.invalidated ? 'failed' : 'reviewing';
     } else if (action.action === 'complete') {
       check(task.status === 'reviewing', '先提交 outputs，再验收');
       check(task.outputs.length && task.outputs.every((id) => {
@@ -136,8 +155,11 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
         if (c.dimension) {
           check(visualCriterionPass(task, c, knownItems, legacyVisualAcceptance), `视觉硬性约束未通过独立审查：${c.id}`);
         }
+        if (c.validator) check(currentValidation(task, c, knownItems, validation)?.verdict === 'pass', `验收未通过或证据未知：${c.id}；请 validate_task 或请求用户验收`);
       }
+      task.validation = validation ? structuredClone(validation) : undefined;
       task.evidence = structuredClone(action.evidence);
+      task.outputVersions = assetVersions(task.outputs, knownItems);
       task.status = 'completed';
     }
   }
@@ -182,11 +204,19 @@ export function reconcileTaskGraph(current: AgentTaskGraph, items: CanvasItem[],
   const byId = new Map(items.map((i) => [i.id, i]));
   let changed = false;
   const invalid = new Set<string>();
-  for (const task of graph.tasks.filter((t) => ['reviewing', 'completed'].includes(t.status))) {
+  for (const task of graph.tasks.filter((t) => ['running', 'reviewing', 'completed'].includes(t.status))) {
+    const changedVersions = [...changedAssets(task.inputVersions, byId), ...(task.status === 'completed' ? changedAssets(task.outputVersions, byId) : [])];
+    if (changedVersions.length && !task.invalidated) {
+      task.invalidated = true;
+      task.error = `素材内容已改变（${changedVersions.join(', ')}），旧执行或验收失效；检查已有 GPU 任务后局部重规划`;
+      if (task.status !== 'running') task.status = 'failed';
+      invalid.add(task.id);
+    }
+    if (task.status === 'running' || task.status === 'failed') continue;
     const bad = task.outputs.find((id) => {
       const item = byId.get(id);
       return !item || item.error || item.critic?.verdict === 'fail' || item.review?.verdict === 'fail' || (task.status === 'completed' && !item.asset && !item.text?.trim());
-    }) ?? (task.status === 'completed' && task.acceptanceCriteria.some((c) => !visualCriterionPass(task, c, byId, legacyVisualAcceptance)) ? task.outputs[0] : undefined);
+    }) ?? (task.status === 'completed' && task.acceptanceCriteria.some((c) => !visualCriterionPass(task, c, byId, legacyVisualAcceptance) || (c.validator && currentValidation(task, c, byId)?.verdict !== 'pass')) ? task.outputs[0] : undefined);
     if (bad) {
       task.status = 'failed';
       task.error = `输出 ${bad} 已丢失、失败或未通过审查；检查后 retry，保留已有生成结果以免重复提交`;
@@ -194,10 +224,11 @@ export function reconcileTaskGraph(current: AgentTaskGraph, items: CanvasItem[],
       changed = true;
     }
   }
-  if (!changed) return current;
+  if (!changed && !invalid.size) return current;
   for (let n = 0; n < graph.tasks.length; n++) for (const task of graph.tasks) {
     if (invalid.has(task.id) || !task.dependencies.some((id) => invalid.has(id))) continue;
     invalid.add(task.id);
+    task.invalidated = true;
     // Running GPU work stays visible until the orchestrator cancels it.
     if (task.status !== 'running') {
       task.status = 'pending';

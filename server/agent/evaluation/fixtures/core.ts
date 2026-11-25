@@ -13,7 +13,7 @@ const checks = (workflow: string) => [
 
 /** Authored expected behavior is fixed independently of live model responses. No generated quality labels. */
 export const CORE_BENCHMARK_CASES: AgentBenchmarkCase[] = [
-  { id: 'intent-upscale', dimension: 'intent', request: '把选中的图片用超分工作流放大 2 倍，保持原有内容，不要重新生图。', selection: ['image-a'], checks: checks('eval-upscale'), script: [workflows('upscale'), run('eval-upscale', { params: { scale: 2 } }), wait()], scriptedAnswer: '已按原图做两倍超分，没有重新创作。', budget },
+  { id: 'intent-upscale', dimension: 'intent', request: '把选中的图片用超分工作流放大 2 倍，保持原有内容，不要重新生图。', selection: ['image-a'], checks: [...checks('eval-upscale'), { kind: 'media', width: 512, height: 256 }], script: [workflows('upscale'), run('eval-upscale', { params: { scale: 2 } }), wait()], scriptedAnswer: '已按原图做两倍超分，没有重新创作。', budget },
   { id: 'intent-remove-background', dimension: 'intent', request: '去掉选中图片的背景，只保留主体，使用抠图工作流。', selection: ['image-a'], checks: checks('eval-remove-bg'), script: [workflows('remove_background'), run('eval-remove-bg'), wait()], scriptedAnswer: '已去除背景并保留主体。', budget },
   { id: 'selection-no-substitute', dimension: 'tool_selection', setup: 'upscale_only', request: '保持选中的商品不变，把背景换成海边。如果没有编辑能力就说明缺什么，不要拿超分工作流代替。', selection: ['image-a'], checks: [
     { kind: 'tool', tools: ['list_workflows'], min: 1 },
@@ -23,10 +23,10 @@ export const CORE_BENCHMARK_CASES: AgentBenchmarkCase[] = [
     { kind: 'tool', tools: ['run_workflow'], where: { workflow_id: 'eval-edit-two', image_ids: ['image-a', 'image-b'] }, min: 1 }, { kind: 'generation', min: 1, max: 1 },
   ], script: [workflows('image_edit', 2), run('eval-edit-two', { image_ids: ['image-a', 'image-b'], prompt: '同时保留图1和图2的元素' }), wait()], scriptedAnswer: '已使用两张参考图。', budget },
   { id: 'parameters-fast-square', dimension: 'parameters', request: '用 Z-Image 快速画一张正方形橙色杯子草图，1k 即可，不需要参考图。', selection: [], checks: [
-    { kind: 'tool', tools: ['generate_image'], where: { model: 'zimage', aspect: '1:1', quality: '1k' }, min: 1 }, { kind: 'generation', min: 1, max: 1 },
+    { kind: 'tool', tools: ['generate_image'], where: { model: 'zimage', aspect: '1:1', quality: '1k' }, min: 1 }, { kind: 'generation', min: 1, max: 1 }, { kind: 'media', width: 1024, height: 1024 },
   ], script: [step('generate_image', { model: 'zimage', prompt: 'An orange cup on a plain background.', aspect: '1:1', quality: '1k' }), wait()], scriptedAnswer: '已生成一张正方形草图。', budget },
   { id: 'parameters-edit-aspect', dimension: 'parameters', request: '把选中的图片用编辑工作流改成 16:9 横版，保留原图主体，背景改为浅灰。', selection: ['image-a'], checks: [
-    { kind: 'tool', tools: ['run_workflow'], where: { workflow_id: 'eval-edit-one', image_ids: ['image-a'], aspect: '16:9' }, min: 1 }, { kind: 'generation', min: 1, max: 1, reference: 'image-a' },
+    { kind: 'tool', tools: ['run_workflow'], where: { workflow_id: 'eval-edit-one', image_ids: ['image-a'], aspect: '16:9' }, min: 1 }, { kind: 'media', aspect: 16 / 9, maxPixelRounding: 32 }, { kind: 'generation', min: 1, max: 1, reference: 'image-a' },
   ], script: [workflows('image_edit'), run('eval-edit-one', { aspect: '16:9', prompt: '保留主体，将背景换成浅灰' }), wait()], scriptedAnswer: '已制作 16:9 横版。', budget },
   { id: 'visual-left-right', dimension: 'visual', request: '看看选中的图片，画面左侧和右侧分别是什么颜色的方块？只检查，不修改。', selection: ['image-a'], checks: [
     { kind: 'tool', tools: ['view_images', 'review_items'], where: { ids: ['image-a'] }, min: 1 }, { kind: 'response', pattern: '左[\\s\\S]{0,20}红|红[\\s\\S]{0,20}左' }, { kind: 'response', pattern: '右[\\s\\S]{0,20}蓝|蓝[\\s\\S]{0,20}右' }, { kind: 'generation', min: 0, max: 0 },

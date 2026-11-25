@@ -21,6 +21,20 @@ export class AgentTraceRecorder {
       ...(event.response ? { response: redactTraceText(event.response) } : {}),
     };
     return this.store.update(projectId, event.runId, (trace) => {
+      if (event.type === 'generation_end') {
+        if (event.taskId && trace.completedTaskIds?.includes(event.taskId)) return;
+        if (event.taskId) trace.completedTaskIds = [...new Set([...(trace.completedTaskIds ?? []), event.taskId])];
+      }
+      if (event.type === 'generation_queued') {
+        trace.outputs = [...new Set([...trace.outputs, ...(event.items ?? [])])];
+        const fresh = (event.taskIds ?? []).filter((id) => !trace.queuedTaskIds?.includes(id));
+        const retries = event.retry ? (event.taskIds ?? []).filter((id) => !trace.retriedTaskIds?.includes(id)) : [];
+        trace.queuedTaskIds = [...new Set([...(trace.queuedTaskIds ?? []), ...fresh])];
+        trace.retriedTaskIds = [...new Set([...(trace.retriedTaskIds ?? []), ...retries])];
+        trace.usage.generations += fresh.length;
+        trace.usage.retries += retries.length;
+        if (event.taskIds?.length && !fresh.length && !retries.length) return;
+      }
       trace.events.push(safe);
       if (trace.events.length > MAX_RUN_EVENTS) { trace.events.shift(); trace.droppedEvents++; }
       if (event.type === 'tool_start') {
@@ -37,11 +51,6 @@ export class AgentTraceRecorder {
         trace.usage.paidTokens += event.tokens ?? 0;
         trace.usage.cost += event.cost ?? 0;
         if (safe.response) trace.outcome.response = safe.response;
-      }
-      if (event.type === 'generation_queued') {
-        trace.outputs = [...new Set([...trace.outputs, ...(event.items ?? [])])];
-        trace.usage.generations += event.taskIds?.length ?? 0;
-        if (event.retry) trace.usage.retries += event.taskIds?.length ?? 0;
       }
       if (event.type === 'approval' && event.ok && event.items) trace.outputs = [...new Set([...trace.outputs, ...event.items])];
       if (event.type === 'generation_end') trace.usage.gpuSeconds += (event.gpuMs ?? 0) / 1000;

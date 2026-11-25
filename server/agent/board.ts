@@ -30,7 +30,13 @@ export const LONG_SIDE: Record<MediaKind, number> = { image: 512, video: 640, au
 export async function readBoard(deps: CanvasDeps, projectId: string): Promise<Project> {
   const p = await deps.projects.get(projectId);
   if (!p) throw new Error(t('画布不存在（可能已被删除）'));
-  return p;
+  return { ...p, items: p.items.map((item) => {
+    if (item.asset || !item.taskId) return item;
+    const task = taskOf(deps, item);
+    const media = mediaOf(deps, item);
+    if (media) return { ...item, asset: media };
+    return task && ['error', 'cancelled'].includes(task.status) ? { ...item, error: task.error ?? '任务已取消' } : item;
+  }) };
 }
 
 export async function patchBoard(deps: CanvasDeps, projectId: string, patch: ItemsPatch) {

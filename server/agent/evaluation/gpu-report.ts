@@ -9,7 +9,7 @@ export function gpuReportPath(value: string) {
 
 export function gpuReportLabel(value: unknown): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== 'string' || !value.length || value.length > 128 || /[^A-Za-z0-9 ._()+/-]/.test(value)) {
+  if (typeof value !== 'string' || !value.length || value.length > 128 || /[^A-Za-z0-9 ._()+/:\-]/.test(value)) {
     throw new Error('Invalid ComfyUI device/version label');
   }
   return value;

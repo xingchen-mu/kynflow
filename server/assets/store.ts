@@ -140,6 +140,7 @@ export class AssetStore {
     const id = nanoid(12);
     const file = id + fileExt;
     const tmp = join(this.dir, `.${file}.tmp`);
+    // codeql[js/http-to-file-access] Intentional media/document storage: a server-generated id and allowlisted extension determine the local path; remote bytes are data and are never executed.
     await writeFile(tmp, data);
     await rename(tmp, join(this.dir, file));
     const asset: StoredAsset = {

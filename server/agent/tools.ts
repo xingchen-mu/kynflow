@@ -8,6 +8,7 @@ import { list, t } from '../i18n.ts';
 import {
   type AgentPrompt,
   type AgentTaskGraph,
+  type AgentValidationResult,
   type VisualCritique,
   type AgentTodo,
   type AssetInfo,
@@ -65,6 +66,8 @@ export interface ToolContext {
     graph(): AgentTaskGraph;
     updateGraph(action: TaskGraphAction): Promise<AgentTaskGraph>;
     activateSkill(id: string): Promise<void>;
+    validateTask(id: string): Promise<AgentValidationResult[]>;
+    toolCatalog(): unknown;
     critique(request: CritiqueRequest, signal?: AbortSignal): Promise<VisualCritique>;
   };
   workflowRanks?: (pool: WorkflowLike[]) => Promise<WorkflowRank[]>;

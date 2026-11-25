@@ -94,6 +94,31 @@ test('deleting a completed output invalidates its downstream acceptance', () => 
   assert.equal(reconcileTaskGraph(reconciled, [note('script'), note('cut')]), reconciled);
 });
 
+test('editing completed content invalidates only affected descendants while canvas moves remain cosmetic', () => {
+  const completed = finish(finish(finish(create(), 'script'), 'shot-a'), 'independent');
+  const original = [note('script'), note('shot-a'), note('independent')];
+  assert.equal(reconcileTaskGraph(completed, original.map((item) => ({ ...item, x: 500, name: 'renamed' }))), completed);
+  const changed = original.map((item) => item.id === 'script' ? { ...item, text: '新的剧本内容' } : item);
+  const invalid = reconcileTaskGraph(completed, changed);
+  assert.equal(invalid.tasks.find((task) => task.id === 'script')!.status, 'failed');
+  assert.equal(invalid.tasks.find((task) => task.id === 'shot-a')!.status, 'blocked');
+  assert.equal(invalid.tasks.find((task) => task.id === 'independent')!.status, 'completed');
+  assert.equal(reconcileTaskGraph(invalid, changed), invalid);
+});
+
+test('a running task whose reference changed cannot be accepted when its old GPU result arrives', () => {
+  const ref = image('ref');
+  let graph = changeTaskGraph(emptyTaskGraph(), { action: 'plan', revision: 0, plan: { objective: 'edit', tasks: [{ ...step('edit'), inputs: ['ref'] }] } }, [ref]);
+  graph = change(graph, { action: 'start', id: 'edit' }, [ref]);
+  const replaced = { ...ref, asset: { ...ref.asset!, id: 'replacement-asset' } };
+  graph = reconcileTaskGraph(graph, [replaced]);
+  assert.equal(graph.tasks[0].status, 'running', 'a remote job remains visible until explicitly cancelled');
+  assert.equal(graph.tasks[0].invalidated, true);
+  graph = changeTaskGraph(graph, { action: 'outputs', revision: graph.revision, id: 'edit', outputs: ['old-result'] }, [replaced, note('old-result')]);
+  assert.equal(graph.tasks[0].status, 'failed');
+  assert.deepEqual(graph.tasks[0].outputs, ['old-result']);
+});
+
 test('critic hard thresholds cannot be hidden by high scores elsewhere, or by malformed JSON', () => {
   const opts = { thresholds: { instruction: 80, identity: 80, quality: 75 }, referenceIds: ['ref'], objective: 'same character', model: 'faux' };
   const result = parseCritique(JSON.stringify({ scores: { instruction: { score: 99, evidence: '动作正确' }, identity: { score: 58, evidence: '参考短发，结果长发' }, quality: { score: 99, evidence: '清晰' } }, reason: 'subject_mismatch', diagnosis: '头发不一致' }), opts);

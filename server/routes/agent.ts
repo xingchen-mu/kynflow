@@ -19,6 +19,7 @@ export function registerAgentRoutes(app: Hono, { agent, projects, series }: Pick
   app.get('/api/agent/skills', async (c) => c.json(await agent.listSkills()));
   app.put('/api/agent/commands', async (c) => c.json(await agent.saveCommands(await c.req.json())));
   app.get('/api/agent/:projectId', async (c) => c.json(await agent.view(c.req.param('projectId'))));
+  app.post('/api/agent/:projectId/tasks/:taskId/feedback', async (c) => c.json(await agent.taskFeedback(c.req.param('projectId'), c.req.param('taskId'), await c.req.json())));
   app.get('/api/agent/:projectId/task-graph', async (c) => c.json(await agent.taskGraph(c.req.param('projectId'))));
   app.get('/api/agent/:projectId/trace', async (c) => c.json(await agent.trace(c.req.param('projectId'))));
   app.get('/api/agent/:projectId/traces', async (c) => c.json(await agent.runTraces(c.req.param('projectId'), c.req.query('sessionId'))));
