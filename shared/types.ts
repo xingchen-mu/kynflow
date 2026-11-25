@@ -845,6 +845,8 @@ export interface AgentAcceptanceCriterion {
   /** A visual hard constraint must be checked by the independent critic. */
   dimension?: VisualDimension;
   threshold?: number;
+  /** Whole-media temporal claims cannot be accepted from sparse sampled frames. */
+  scope?: 'whole_media' | 'sampled_frames';
 }
 export interface AgentTask {
   id: string;
@@ -882,6 +884,43 @@ export interface VisualCritique {
   objective: string;
   model: string;
   at: number;
+  assessmentVersion?: 'criteria-v2';
+  coverage?: 'image' | 'sampled_video';
+  checks?: VisualCriterionCheck[];
+  defects?: VisualDefect[];
+  repairPlan?: VisualRepairStep[];
+}
+export interface VisualCriterion {
+  id: string;
+  dimension: VisualDimension;
+  description: string;
+  threshold: number;
+  scope?: 'whole_media' | 'sampled_frames';
+}
+export interface VisualCriterionCheck extends VisualCriterion {
+  score: number;
+  evidence: string;
+  visibility: 'observed' | 'uncertain' | 'unobservable';
+  verdict: 'pass' | 'fail';
+}
+export type VisualDefectCategory = 'identity_drift' | 'layout_mismatch' | 'spatial_conflict' | 'subject_scale' | 'object_clipping' | 'action_missing' | 'text_error' | 'style_drift' | 'color_mismatch' | 'render_artifact' | 'temporal_discontinuity' | 'insufficient_evidence' | 'instruction_mismatch';
+export interface VisualDefect {
+  criterionId: string;
+  category: VisualDefectCategory;
+  evidence: string;
+  /** Normalized location in the target image; omitted when not localizable. */
+  region?: { x: number; y: number; w: number; h: number };
+}
+export interface VisualRepairStep {
+  category: VisualDefectCategory;
+  action: 'reference_edit' | 'layout_guide' | 'crop_reference' | 'prompt_revision' | 'localized_edit' | 'inspect_more';
+  capability?: 'image_edit' | 'inpaint';
+  requiresReference: boolean;
+  instruction: string;
+  preserve: string[];
+  verify: string[];
+  /** Suggestions never submit work or authorize an unbounded retry loop. */
+  seedOnlyAllowed: false;
 }
 export interface AgentSkillInfo {
   id: string;
@@ -908,7 +947,7 @@ export interface AgentTraceEvent {
   id: string;
   runId: string;
   at: number;
-  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end' | 'approval';
+  type: 'run_start' | 'run_end' | 'tool_start' | 'tool_end' | 'model' | 'recovery' | 'generation_queued' | 'generation_end' | 'approval' | 'context';
   tool?: string;
   callId?: string;
   ok?: boolean;
@@ -951,6 +990,7 @@ export interface AgentRunTrace {
   model: string;
   promptVersion: string;
   profile: AgentHarnessProfile;
+  enhancement?: 'legacy' | 'targeted';
   source: 'user' | 'event';
   generationEnvironment: 'comfyui' | 'mock';
   startedAt: number;

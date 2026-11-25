@@ -1,4 +1,4 @@
-import type { AgentTaskGraph, VisualDimension } from '../../shared/types.ts';
+import type { AgentAcceptanceCriterion, AgentTaskGraph, VisualDimension } from '../../shared/types.ts';
 import { msg } from '../../shared/i18n.ts';
 import { t } from '../i18n.ts';
 import type { CanvasDeps } from './board.ts';
@@ -9,6 +9,7 @@ import type { SkillEngine } from './skills.ts';
 import type { TaskGraphAction } from './task-graph.ts';
 import { taskGraphContext } from './task-graph.ts';
 import { VISUAL_DIMENSIONS } from './visual-critic.ts';
+import { visualCriteria } from './visual-criteria.ts';
 import { contactSheet, probe, videoFrame, type Tile } from './media.ts';
 
 const tool = <A>(definition: CanvasTool<A>) => definition as unknown as CanvasTool;
@@ -18,7 +19,7 @@ const requireHarness = (ctx: ToolContext) => {
   return ctx.harness;
 };
 
-export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences: ExperienceStore): CanvasTool[] {
+export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences: ExperienceStore, enhancement: 'legacy' | 'targeted' = 'targeted'): CanvasTool[] {
   return [
     tool<Record<string, never>>({
       name: 'read_task_graph', label: msg('读取任务图'), readOnly: true,
@@ -44,7 +45,7 @@ export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences:
               id: { type: 'string' }, objective: { type: 'string', maxLength: 1000 }, dependencies: strings, inputs: strings,
               maxAttempts: { type: 'integer', minimum: 1, maximum: 5 },
               acceptanceCriteria: { type: 'array', minItems: 1, maxItems: 16, items: { type: 'object', properties: {
-                id: { type: 'string' }, description: { type: 'string', maxLength: 500 }, dimension: { type: 'string', enum: VISUAL_DIMENSIONS }, threshold: { type: 'number', minimum: 0, maximum: 100 },
+                id: { type: 'string' }, description: { type: 'string', maxLength: 500 }, dimension: { type: 'string', enum: VISUAL_DIMENSIONS }, threshold: { type: 'number', minimum: 0, maximum: 100 }, ...(enhancement !== 'legacy' ? { scope: { type: 'string', enum: ['whole_media', 'sampled_frames'] } } : {}),
               }, required: ['id', 'description'] } },
             }, required: ['id', 'objective', 'dependencies', 'acceptanceCriteria'] } },
           }, required: ['objective', 'tasks'] },
@@ -98,13 +99,14 @@ export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences:
         return { text: JSON.stringify(entry), summary: t('记录创作经验') };
       },
     }),
-    tool<{ id: string; task_id?: string; objective?: string; reference_ids?: string[]; thresholds?: Partial<Record<VisualDimension, number>> }>({
+    tool<{ id: string; task_id?: string; objective?: string; reference_ids?: string[]; thresholds?: Partial<Record<VisualDimension, number>>; criteria?: AgentAcceptanceCriterion[] }>({
       name: 'visual_critic', label: msg('独立视觉审查'), vision: true,
-      description: '用独立模型调用审查单个图片或视频，不能接触创作对话或执行工具。task_id 自动使用任务目标和视觉验收阈值；额外参考用 reference_ids。每维度有硬阈值，返回证据、诊断与修复建议并写回节点。视频审查仅采样首中尾，不能证明完整时序。',
+      description: enhancement === 'legacy' ? '用独立模型调用审查单个图片或视频，不能接触创作对话或执行工具。task_id 自动使用任务目标和视觉验收阈值；额外参考用 reference_ids。每维度有硬阈值，返回证据、诊断与修复建议并写回节点。视频审查仅采样首中尾，不能证明完整时序。' : '独立审查图片或视频，不接触创作对话或先前评分。task_id 使用任务的逐条视觉验收条件；无任务图时也可用 criteria 明确 id、dimension、description、threshold。同一维度不同条件逐条检查，证据不足不能通过。失败返回结构化缺陷与修复方案，建议不会自动生成；先解决证据不足，再在现有预算内定向修复并复核，不能只换 seed 或放宽标准。视频仅采样首中尾。',
       parameters: { type: 'object', properties: {
         id: { type: 'string' }, task_id: { type: 'string' }, objective: { type: 'string', maxLength: 1000 },
         reference_ids: { type: 'array', items: { type: 'string' }, maxItems: 4 },
         thresholds: { type: 'object', properties: Object.fromEntries(VISUAL_DIMENSIONS.map((d) => [d, { type: 'number', minimum: 0, maximum: 100 }])), additionalProperties: false },
+        ...(enhancement !== 'legacy' ? { criteria: { type: 'array', maxItems: 16, items: { type: 'object', properties: { id: { type: 'string' }, dimension: { type: 'string', enum: VISUAL_DIMENSIONS }, description: { type: 'string', maxLength: 500 }, threshold: { type: 'number', minimum: 0, maximum: 100 }, scope: { type: 'string', enum: ['whole_media', 'sampled_frames'] } }, required: ['id', 'dimension', 'description'] } } } : {}),
       }, required: ['id'] },
       describe: () => t('独立视觉审查'),
       async run(args, ctx) {
@@ -115,8 +117,11 @@ export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences:
         const objective = task?.objective ?? args.objective?.trim();
         if (!objective || objective.length > 1000) throw new Error('视觉审查需要目标或有效 task_id');
         const thresholds = { instruction: 80, quality: 75, ...args.thresholds };
-        for (const c of task?.acceptanceCriteria ?? []) if (c.dimension) thresholds[c.dimension] = Math.max(thresholds[c.dimension] ?? 0, c.threshold ?? 80);
+        if (harness.enhancement === 'legacy') for (const c of task?.acceptanceCriteria ?? []) if (c.dimension) thresholds[c.dimension] = Math.max(thresholds[c.dimension] ?? 0, c.threshold ?? 80);
         if (Object.entries(thresholds).some(([d, n]) => !VISUAL_DIMENSIONS.includes(d as VisualDimension) || !Number.isFinite(n) || n < 0 || n > 100)) throw new Error('视觉阈值无效');
+        if (task && args.criteria?.length) throw new Error('任务审查使用已定义的验收条件，不能临时替换标准');
+        const criteria = harness.enhancement === 'legacy' ? undefined : visualCriteria(thresholds, task?.acceptanceCriteria ?? args.criteria);
+        for (const criterion of criteria ?? []) thresholds[criterion.dimension] = Math.max(thresholds[criterion.dimension] ?? 0, criterion.threshold);
         const project = await readBoard(deps, ctx.projectId);
         const referenceIds = [...new Set(args.reference_ids ?? task?.inputs.filter((id) => ['image', 'video'].includes(project.items.find((i) => i.id === id)?.kind ?? '')) ?? [])].filter((id) => id !== args.id);
         if (referenceIds.length > 4) throw new Error('一次最多 4 个参考节点，请明确选择');
@@ -137,11 +142,12 @@ export function harnessTools(deps: CanvasDeps, skills: SkillEngine, experiences:
             const times = [Math.min(0.3, duration / 4), duration / 2, Math.max(0, duration - 0.1)];
             for (const [k, at] of times.entries()) tiles.push({ image: await videoFrame(path, at, ctx.signal), label: `${label}-${k + 1}` });
           } else tiles.push({ image: path, label });
-          labels.push(`${label} ${index === 0 ? '待审' : '参考'}：${describeItem(deps, item, 180)}`);
+          // Do not leak creator names, prompts, self-reviews or previous critic verdicts.
+          labels.push(harness.enhancement === 'legacy' ? `${label} ${index === 0 ? '待审' : '参考'}：${describeItem(deps, item, 180)}` : `${label} ${index === 0 ? '待审' : '参考'} ${stored.kind} ${stored.width}×${stored.height}${stored.kind === 'video' ? '（仅首中尾抽样）' : ''}`);
         }
         const sheets: { data: string; mimeType: string }[] = [];
         for (let i = 0; i < tiles.length; i += 4) sheets.push({ data: (await contactSheet(tiles.slice(i, i + 4), 2)).toString('base64'), mimeType: 'image/jpeg' });
-        const critique = await harness.critique({ objective, thresholds, referenceIds, labels, images: sheets }, ctx.signal);
+        const critique = await harness.critique({ objective, thresholds, referenceIds, labels, images: sheets, coverage: items[0].kind === 'video' ? 'sampled_video' : 'image', ...(criteria ? { criteria } : {}) }, ctx.signal);
         // Do not overwrite concurrent name/position changes while the model was thinking.
         const latest = await readBoard(deps, ctx.projectId);
         const item = findItems(latest, [args.id])[0];

@@ -9,7 +9,7 @@ import type { AgentExperience, AgentTaskGraph, CanvasItem, Task, WorkflowLike } 
 import { changeTaskGraph, emptyTaskGraph, reconcileTaskGraph, recoverTaskGraph, type TaskGraphAction, type TaskGraphPlan } from '../server/agent/task-graph.ts';
 import { SkillEngine } from '../server/agent/skills.ts';
 import { ExperienceStore } from '../server/agent/experience.ts';
-import { parseCritique } from '../server/agent/visual-critic.ts';
+import { parseCritique, parseStructuredCritique } from '../server/agent/visual-critic.ts';
 import { rankWorkflows } from '../server/agent/router.ts';
 import { buildTaskContext } from '../server/agent/context.ts';
 import { evaluateAgentTrace } from '../server/agent/evaluation.ts';
@@ -62,7 +62,7 @@ test('completion needs actual outputs, evidence and every visual hard constraint
   const complete: TaskGraphAction = { action: 'complete', revision: graph.revision, id: 'shot', evidence: [{ criterionId: 'face', note: '脸型与参考一致' }] };
   assert.throws(() => changeTaskGraph(graph, complete, []), /输出/);
   assert.throws(() => changeTaskGraph(graph, complete, [output, ref]), /独立审查/);
-  const critique = (score: number, referenceIds = ['ref'], objective = 'shot 目标') => ({ ...parseCritique(JSON.stringify({ scores: { identity: { score, evidence: '比较脸型、发型和服装' } }, diagnosis: '脸型不同', reason: 'subject_mismatch' }), { thresholds: { identity: 80 }, referenceIds, objective, model: 'faux' }), assetId: output.asset!.id, referenceAssets: { ref: ref.asset!.id } });
+  const critique = (score: number, referenceIds = ['ref'], objective = 'shot 目标') => ({ ...parseStructuredCritique(JSON.stringify({ checks: [{ criterionId: 'face', score, evidence: '比较脸型、发型和服装', visibility: 'observed' }], diagnosis: '脸型对照' }), { criteria: [{ id: 'face', description: '人物一致', dimension: 'identity', threshold: 80 }], referenceIds, objective, model: 'faux' }), assetId: output.asset!.id, referenceAssets: { ref: ref.asset!.id } });
   output = { ...output, critic: critique(58) };
   assert.throws(() => changeTaskGraph(graph, complete, [output, ref]), /输出/);
   output.critic = critique(95, [], '另一个任务');
@@ -72,6 +72,8 @@ test('completion needs actual outputs, evidence and every visual hard constraint
   output.critic = critique(95);
   const passed = changeTaskGraph(graph, complete, [output, ref]);
   assert.equal(passed.tasks[0].status, 'completed');
+  output.critic.checks![0].description = '另一个要求';
+  assert.throws(() => changeTaskGraph(graph, complete, [output, ref]), /独立审查/);
 });
 
 test('restart retains attempts, blocks failed descendants and never claims interrupted work succeeded', () => {

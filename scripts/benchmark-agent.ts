@@ -14,6 +14,8 @@ const args = process.argv.slice(2);
 const value = (key: string) => { const index = args.indexOf(key); return index < 0 ? undefined : args[index + 1]; };
 const mode = value('--mode') ?? 'scripted';
 const profile = value('--profile') ?? 'enhanced';
+const enhancement = value('--enhancement') ?? 'targeted';
+if (!['legacy', 'targeted'].includes(enhancement)) throw new Error('Use --enhancement legacy|targeted');
 if (!['scripted', 'live'].includes(mode) || !['baseline', 'enhanced', 'both'].includes(profile)) throw new Error('Use --mode scripted|live and --profile baseline|enhanced|both');
 const profiles = profile === 'both' ? ['baseline', 'enhanced'] as const : [profile as 'baseline' | 'enhanced'];
 const cases = CORE_BENCHMARK_CASES.filter((item) => !value('--case') || item.id === value('--case'));
@@ -42,7 +44,7 @@ for (const currentProfile of profiles) for (const spec of cases) {
   console.log(`Running ${mode}/${currentProfile}/${spec.id}`);
   try {
     const worker = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
-      const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/agent-benchmark-worker.ts', spec.id, mode, currentProfile], {
+      const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/agent-benchmark-worker.ts', spec.id, mode, currentProfile, enhancement], {
         env: { ...process.env, DATA_DIR: directory, AGENT_MODEL: cfg.model, AGENT_BASE_URL: cfg.baseUrl ?? '', AGENT_API_KEY: cfg.apiKey ?? process.env.AGENT_API_KEY ?? '', AGENT_VISION: cfg.vision ? '1' : '0', AGENT_THINKING: cfg.thinking ?? 'off', AGENT_CONTEXT_WINDOW: String(cfg.contextWindow ?? 128000), AGENT_REASONING: cfg.reasoning ? '1' : '0' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -71,7 +73,7 @@ for (const currentProfile of profiles) for (const spec of cases) {
 }
 const report = { version: 2, startedAt, finishedAt: new Date().toISOString(), revision, sourceDirty, traceArtifacts: basename(artifactDirectory),
   fixtureVersion: createHash('sha256').update(JSON.stringify({ cases: CORE_BENCHMARK_CASES, protocol: MOCK_PROTOCOL_VERSION, instructions: MOCK_PROTOCOL_INSTRUCTIONS })).digest('hex'),
-  environment: { mode, protocol: MOCK_PROTOCOL_VERSION, model: mode === 'scripted' ? 'benchmark/scripted-v1' : cfg.model, node: process.version, pi: '1.4.0', comfyUI: 'mock-v1 (real HTTP and TaskManager)', gpu: 'none', visualInputs: 'authored color/shape fixtures; generated visual quality is not scored', cost: 'provider catalog estimate; custom endpoint prices may be unknown' },
+  environment: { mode, enhancement, protocol: MOCK_PROTOCOL_VERSION, model: mode === 'scripted' ? 'benchmark/scripted-v1' : cfg.model, node: process.version, pi: '1.4.0', comfyUI: 'mock-v1 (real HTTP and TaskManager)', gpu: 'none', visualInputs: 'authored color/shape fixtures; generated visual quality is not scored', cost: 'provider catalog estimate; custom endpoint prices may be unknown' },
   summaries: Object.fromEntries(profiles.map((current) => [current, benchmarkSummary(results.filter((result) => result.profile === current))])), comparison: compareBenchmark(results), results,
   interpretation: mode === 'scripted' ? 'Protocol regressions with scripted model decisions; no claim about model ability.' : 'Live model decisions on fixed mock-environment tasks; visual perception covers simple authored shapes, not generated aesthetics or character identity. Ablation is a single sample per case, not causal proof.',
 };
