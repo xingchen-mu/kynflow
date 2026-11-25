@@ -59,8 +59,13 @@ npm run compare:agent -- --mode live --output output/agent-stage2-live.json
 # 相同原图、相同 seed；两次实际 GPU 编辑各有一次提交上限
 npm run benchmark:agent:gpu -- --real-gpu --enhancement legacy --seed 42 --input output/gpu-smoke/zimage_00001_.png --output output/agent-stage2-gpu-legacy.json
 npm run benchmark:agent:gpu -- --real-gpu --enhancement targeted --seed 42 --input output/gpu-smoke/zimage_00001_.png --output output/agent-stage2-gpu-targeted.json
+
+# 复核已经生成的图：禁止任何 GPU 提交，两个结果可使用相同的固定逐条标准
+npm run benchmark:agent:gpu -- --real-gpu --input ORIGINAL.png --existing-result RESULT.png --output output/agent-stage2-rereview.json
 ```
 
 凭据仅通过进程环境传入；不写入报告或 Git。JSON/Markdown、逐例轨迹和实际图像保存在忽略的 `output/`。协议对照固定 20 个任务、同一模型、同一源码和夹具版本。不同版本、脏工作区和配置阻塞不计为能力提升。报告保留回退，不按成功案例筛选结果。
+
+`--existing-result` 模式只读取已有的原图和结果，记录来源路径，并给模型同一组固定标准；报告校验实际返回的条目 id、描述、维度与阈值。此模式不连接进度 WebSocket、不轮询任务、不取消队列，生成预算为零。它用于模型或参数错误后的复核，不能伪装成一次重新成功完成的生成。
 
 协议中的生成输出仍是占位图，不能计为视觉质量成功率。真实 GPU 结果单独记录执行状态、模型审查与实际图像。两种 Critic 的标准粒度不同，不能直接把维度分差当成图像质量提升；相同 seed 也不能消除模型提示词和采样差异。一次采样只用于诊断，需要人工标注和重复实验才能判断泛化收益。费用未知时 cost=0 仍不代表免费。

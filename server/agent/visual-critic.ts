@@ -17,7 +17,7 @@ export const STRUCTURED_CRITIC_PROMPT = `你是独立视觉审查员。本次请
 失败项逐条标注缺陷 category：identity_drift/layout_mismatch/spatial_conflict/subject_scale/object_clipping/action_missing/text_error/style_drift/color_mismatch/render_artifact/temporal_discontinuity/insufficient_evidence/instruction_mismatch。看不清归 insufficient_evidence，不能直接建议重新生成。
 可明确定位的缺陷可给归一化 region={x,y,w,h}，位置基于待审图，不是拼图；不确定就省略。不得凭空提供精确定位。
 只返回 JSON：{"checks":[{"criterionId":"指定id","score":85,"evidence":"具体可见事实","visibility":"observed","defects":[]}],"diagnosis":"结论与限制"}。
-checks 必须恰好覆盖所有给定 id，不可遗漏、重复或新增。defects 每项为 {"category":"color_mismatch","evidence":"可见事实"}。通过判定由本地程序按硬阈值计算，分数不是校准概率。`;
+checks 必须恰好覆盖所有给定 id，不可遗漏、重复或新增。每项 evidence 最多 80 字，diagnosis 最多 200 字；不要输出额外解释。defects 每项为 {"category":"color_mismatch","evidence":"可见事实"}。通过判定由本地程序按硬阈值计算，分数不是校准概率。`;
 
 const dimensionDefect: Record<VisualDimension, VisualDefectCategory> = {
   instruction: 'instruction_mismatch', identity: 'identity_drift', composition: 'layout_mismatch', spatial: 'spatial_conflict', style: 'style_drift', quality: 'render_artifact', temporal: 'temporal_discontinuity', text: 'text_error',
@@ -62,8 +62,12 @@ export function parseStructuredCritique(text: string, opts: { criteria: VisualCr
   const scores: VisualCritique['scores'] = {};
   const thresholds: VisualCritique['thresholds'] = {};
   for (const check of checks) {
-    if (!scores[check.dimension] || scores[check.dimension]!.score > check.score) scores[check.dimension] = { score: check.score, evidence: check.evidence };
-    thresholds[check.dimension] = Math.max(thresholds[check.dimension] ?? 0, check.threshold);
+    const previous = scores[check.dimension];
+    // Display the tightest score/threshold pair, never a minimum score against another item's maximum threshold.
+    if (!previous || check.score - check.threshold < previous.score - thresholds[check.dimension]!) {
+      scores[check.dimension] = { score: check.score, evidence: check.evidence };
+      thresholds[check.dimension] = check.threshold;
+    }
   }
   const plan = repairPlan(checks, defects);
   return { assessmentVersion: 'criteria-v2', coverage: opts.coverage ?? 'image', verdict: checks.every((check) => check.verdict === 'pass') ? 'pass' : 'fail', checks, scores, thresholds, defects, repairPlan: plan,

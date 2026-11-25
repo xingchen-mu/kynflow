@@ -4,7 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import type { AgentRunTrace, CanvasItem, Task } from '../shared/types.ts';
+import type { AgentRunTrace, CanvasItem, Task, VisualCriterion } from '../shared/types.ts';
 import { config } from '../server/config.ts';
 import { SettingsStore } from '../server/settings.ts';
 import { AssetStore, publicAsset } from '../server/assets/store.ts';
@@ -26,6 +26,15 @@ const enhancement = value('--enhancement') ?? 'targeted';
 if (enhancement !== 'legacy' && enhancement !== 'targeted') throw new Error('Use --enhancement legacy|targeted');
 const fixedSeed = value('--seed') === undefined ? undefined : Number(value('--seed'));
 if (fixedSeed !== undefined && (!Number.isSafeInteger(fixedSeed) || fixedSeed < 0)) throw new Error('Use a non-negative safe integer seed');
+const suppliedResult = value('--existing-result');
+if (suppliedResult && !value('--input')) throw new Error('Review-only evaluation needs --input as the original reference');
+const reviewCriteria: VisualCriterion[] = [
+  { id: 'identity', dimension: 'identity', description: '橙色陶瓷杯的外形、杯把、颜色和高光与原图一致', threshold: 85 },
+  { id: 'composition', dimension: 'composition', description: '杯子位置、大小、朝向、视角和桌面边界与原图一致', threshold: 80 },
+  { id: 'background', dimension: 'instruction', description: '只有原浅灰背景变成柔和、低饱和的浅蓝色', threshold: 80 },
+  { id: 'table', dimension: 'instruction', description: '木桌的木色、木纹和接触阴影与原图一致', threshold: 80 },
+  { id: 'quality', dimension: 'quality', description: '杯子边缘、杯把和背景交界清晰，没有可见破损、融合或伪影', threshold: 75 },
+];
 const output = gpuReportPath(value('--output') ?? 'output/agent-gpu-evaluation.json');
 const artifactDirectory = join(dirname(output), `${basename(output, '.json')}-assets`);
 await mkdir(artifactDirectory, { recursive: true });
@@ -35,14 +44,16 @@ await settings.init();
 settings.value.agentApprovalMode = 'risky';
 if (!settings.agentConfig().apiKey) throw new Error('A configured Agent API key is required for live GPU evaluation');
 const comfy = new ComfyClient(settings.value.comfyUrl, `kynflow-gpu-eval-${randomUUID()}`);
-const initialQueue = await comfy.queue();
-if (initialQueue.queue_running.length || initialQueue.queue_pending.length) throw new Error('ComfyUI queue is busy; no GPU test was submitted');
+if (!suppliedResult) {
+  const initialQueue = await comfy.queue();
+  if (initialQueue.queue_running.length || initialQueue.queue_pending.length) throw new Error('ComfyUI queue is busy; no GPU test was submitted');
+}
 const workflows = new WorkflowStore();
 const presets = new PresetStore();
 await Promise.all([workflows.init(), presets.init()]);
 const capabilities = createCapabilities(comfy, workflows, presets, settings);
 const caps = await capabilities.get();
-if (!caps.comfyOnline) throw new Error('Configured ComfyUI is offline');
+if (!caps.comfyOnline && !suppliedResult) throw new Error('Configured ComfyUI is offline');
 const comfyVersion = gpuReportLabel(caps.comfyVersion);
 const gpu = gpuReportLabel(caps.gpu);
 const ownerDataDirectory = config.dataDir;
@@ -59,8 +70,8 @@ tasks.create = (request, id) => budget.submit(() => submit(fixedSeed === undefin
 const hub = new AgentHub({ assets, projects, tasks, workflows: () => [...workflows.list(), ...presets.list()], capabilities: () => capabilities.get(), changed: () => {}, commercialOnly: () => Boolean(settings.value.commercialOnly) }, (event) => {
   if (event.entry?.kind === 'tool' && event.entry.status !== 'running') console.log(`tool ${event.entry.tool}: ${event.entry.status}`);
 }, { profile: 'enhanced', enhancement, generationEnvironment: 'comfyui', budget: { toolCalls: 18, modelCalls: 20, tokens: 240000, durationMs: 900000, maxOutputTokens: 2500 } }, settings);
-comfy.connect((event) => tasks.onComfyEvent(event), (online) => { if (online) tasks.onReconnect(); });
-const poll = setInterval(() => tasks.onReconnect(), 3000);
+if (!suppliedResult) comfy.connect((event) => tasks.onComfyEvent(event), (online) => { if (online) tasks.onReconnect(); });
+const poll = suppliedResult ? undefined : setInterval(() => tasks.onReconnect(), 3000);
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const phases: { name: string; request: string; sessionId: string; tasks: Task[]; traces: AgentRunTrace[]; outputItems: CanvasItem[]; executionPassed: boolean }[] = [];
 let error: string | undefined;
@@ -109,19 +120,28 @@ try {
   }
   if (!reference?.asset) throw new Error('No reference image is available for the editing phase');
   if (phases.length) await hub.newSession(project.id);
-  const edited = await runPhase('reference-edit', '这是实际 GPU 的参考图编辑测试。保持选中照片的橙色杯子、杯把、形状、颜色和木桌不变，只把浅灰背景改成柔和的浅蓝色。使用支持参考图的 Qwen 或编辑工作流，必须传原图。只允许一次生成，不做视频、不重试，不需要任务图。等结果完成后与原图对照检查，记录实际可确认的结果与不确定之处。', [reference.id], 1);
+  let edited: CanvasItem | undefined;
+  if (suppliedResult) {
+    const input = resolve(suppliedResult);
+    const asset = publicAsset(await assets.save(await readFile(input), { filename: basename(input), mime: 'image/png' }));
+    edited = { id: 'gpu-existing-result', kind: 'image', asset, x: 560, y: 0, w: 512, h: 512, createdAt: Date.now() };
+    await projects.patchItems(project.id, { upsert: [edited] });
+  } else {
+    edited = await runPhase('reference-edit', '这是实际 GPU 的参考图编辑测试。保持选中照片的橙色杯子、杯把、形状、颜色和木桌不变，只把浅灰背景改成柔和的浅蓝色。使用支持参考图的 Qwen 或编辑工作流，必须传原图。只允许一次生成，不做视频、不重试，不需要任务图。等结果完成后与原图对照检查，记录实际可确认的结果与不确定之处。', [reference.id], 1);
+    const editPhase = phases[phases.length - 1];
+    if (!editPhase.tasks.every((task) => 'images' in task.request && task.request.images?.includes(reference!.asset!.id))) editPhase.executionPassed = false;
+  }
   if (!edited?.asset) throw new Error('The editing phase produced no usable image');
-  const editPhase = phases[phases.length - 1];
-  if (!editPhase.tasks.every((task) => 'images' in task.request && task.request.images?.includes(reference!.asset!.id))) editPhase.executionPassed = false;
   await hub.newSession(project.id);
-  await runPhase('independent-visual-review', `只做独立视觉审查，不生成。请调用 visual_critic 审查节点 ${edited.id}，原始参考为 ${reference.id}。目标是保持同一个橙色杯子、杯把、木桌和构图，只把背景改成浅蓝色。identity 阈值 85、composition 阈值 80。给出可见证据与不确定性，不要把工具执行成功当成质量通过，也不要重做。`, [reference.id, edited.id], 0);
+  await runPhase('independent-visual-review', `只做独立视觉审查，不生成。请调用 visual_critic 审查节点 ${edited.id}，原始参考为 ${reference.id}。目标是保持同一个橙色杯子、杯把、木桌和构图，只把背景改成浅蓝色。identity 阈值 85、composition 阈值 80。${suppliedResult && enhancement === 'targeted' ? `必须原样使用这些固定 criteria，不得更换 id、描述或阈值：${JSON.stringify(reviewCriteria)}。` : ''}给出可见证据与不确定性，不要把工具执行成功当成质量通过，也不要重做。`, [reference.id, edited.id], 0);
   const final = (await projects.get(project.id))!.items.find((item) => item.id === edited.id);
   if (!final?.critic) phases[phases.length - 1].executionPassed = false;
+  if (suppliedResult && enhancement === 'targeted' && (final?.critic?.checks?.length !== reviewCriteria.length || !reviewCriteria.every((criterion) => final.critic!.checks!.some((check) => check.id === criterion.id && check.description === criterion.description && check.dimension === criterion.dimension && check.threshold === criterion.threshold)))) phases[phases.length - 1].executionPassed = false;
 } catch (caught) { error = redactTraceText((caught as Error).message); }
 finally {
   await hub.abort(project.id).catch(() => {});
   // Never cancel jobs belonging to another client or project.
-  const queue = await comfy.queue().catch(() => undefined);
+  const queue = suppliedResult ? undefined : await comfy.queue().catch(() => undefined);
   if (queue) for (const task of tasks.active()) {
     if (queue.queue_running.some((entry) => entry[1] === task.promptId) || queue.queue_pending.some((entry) => entry[1] === task.promptId)) await tasks.cancel(task.id);
   }
@@ -143,8 +163,8 @@ finally {
   try { revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { /* source archive */ }
   const dirty = execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim().length > 0;
   const report = { version: 1, at: new Date().toISOString(), revision, dirty, enhancement, fixedSeed, model: settings.agentConfig().model, comfyUI: comfyVersion, gpu, suppliedInput: value('--input') ? resolve(value('--input')!) : undefined,
-    generationEnvironment: 'comfyui', executionPassed: !error && phases.length >= 2 && phases.every((phase) => phase.executionPassed), error, phases, images,
-    interpretation: 'Small real-GPU end-to-end validation. Agent and independent model judgments are not human-confirmed quality scores, and this is not a paired capability benchmark.' };
+    suppliedResult: suppliedResult ? resolve(suppliedResult) : undefined, reviewCriteria: suppliedResult && enhancement === 'targeted' ? reviewCriteria : undefined, generationEnvironment: 'comfyui', executionPassed: !error && phases.length >= (suppliedResult ? 1 : 2) && phases.every((phase) => phase.executionPassed), error, phases, images,
+    interpretation: suppliedResult ? 'Review-only evaluation of existing real-GPU artifacts; no GPU submissions permitted. Model judgments are not human-confirmed quality scores.' : 'Small real-GPU end-to-end validation. Agent and independent model judgments are not human-confirmed quality scores, and this is not a paired capability benchmark.' };
   // codeql[js/http-to-file-access] Intentional JSON telemetry archive: remote labels are bounded/validated; only the local CLI selects the .json destination. This file is never executed.
   await writeFile(output, JSON.stringify(report, null, 2) + '\n');
   await Promise.all([assets.flush(), tasks.flush()]);

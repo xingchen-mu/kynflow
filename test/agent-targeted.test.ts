@@ -24,6 +24,17 @@ test('independent visual criteria retain distinct requirements within one dimens
   assert.deepEqual(result.slice(0, 2).map((criterion) => criterion.threshold), [95, 80]);
   assert.ok(result.some((criterion) => criterion.dimension === 'quality'));
   assert.throws(() => visualCriteria({}, [criteria[0], criteria[0]]), /唯一/);
+  assert.equal(visualCriteria({}, [{ ...criteria[0], scope: 'whole_media' }])[0].scope, 'whole_media');
+  assert.throws(() => visualCriteria({}, [{ ...criteria[0], scope: 'sampled_frames' }]), /抽样/);
+});
+
+test('dimension summaries keep a score paired with its own threshold when individual standards differ', () => {
+  const criteria: VisualCriterion[] = [{ id: 'a', dimension: 'instruction', description: '背景', threshold: 80 }, { id: 'b', dimension: 'instruction', description: '文字', threshold: 90 }];
+  const text = JSON.stringify({ checks: [{ criterionId: 'a', score: 83, evidence: '背景符合', visibility: 'observed' }, { criterionId: 'b', score: 94, evidence: '文字符合', visibility: 'observed' }], diagnosis: '逐项通过' });
+  const result = parseStructuredCritique(text, { ...options, criteria });
+  assert.equal(result.verdict, 'pass');
+  assert.equal(result.scores.instruction!.score, 83);
+  assert.equal(result.thresholds.instruction, 80);
 });
 
 test('a failed visual item produces a targeted repair that preserves successful conditions', () => {

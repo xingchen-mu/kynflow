@@ -21,7 +21,7 @@ export function visualCriteria(thresholds: Partial<Record<VisualDimension, numbe
     if (!criterion.dimension) continue;
     if (!/^[\w-]{1,64}$/.test(criterion.id) || ids.has(criterion.id) || typeof criterion.description !== 'string' || !criterion.description.trim() || criterion.description.length > 500) throw new Error('视觉验收条件需要唯一 id 和明确描述');
     if (!VISUAL_DIMENSIONS.includes(criterion.dimension)) throw new Error('未知视觉验收维度');
-    if (criterion.scope !== undefined && (criterion.dimension !== 'temporal' || !['whole_media', 'sampled_frames'].includes(criterion.scope))) throw new Error('抽样验收范围只适用于时序条件');
+    if (criterion.scope !== undefined && (!['whole_media', 'sampled_frames'].includes(criterion.scope) || (criterion.scope === 'sampled_frames' && criterion.dimension !== 'temporal'))) throw new Error('抽样验收范围只适用于时序条件');
     ids.add(criterion.id);
     const threshold = Math.max(thresholds[criterion.dimension] ?? 0, criterion.threshold ?? 80);
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) throw new Error('视觉阈值必须是 0–100');

@@ -60,7 +60,7 @@ export function changeTaskGraph(current: AgentTaskGraph, action: TaskGraphAction
         criteria.add(c.id);
         if (c.dimension !== undefined) check(VISUAL_DIMENSIONS.includes(c.dimension), '未知视觉验收维度');
         if (c.threshold !== undefined) check(c.dimension && Number.isFinite(c.threshold) && c.threshold >= 0 && c.threshold <= 100, '视觉阈值必须是 0–100');
-        if (c.scope !== undefined) check(c.dimension === 'temporal' && ['whole_media', 'sampled_frames'].includes(c.scope), '抽样验收范围只适用于时序条件');
+        if (c.scope !== undefined) check(['whole_media', 'sampled_frames'].includes(c.scope) && (c.scope !== 'sampled_frames' || c.dimension === 'temporal'), '抽样验收范围只适用于时序条件');
       }
       const maxAttempts = t.maxAttempts ?? 3;
       check(Number.isInteger(maxAttempts) && maxAttempts >= 1 && maxAttempts <= 5, '任务尝试上限必须是 1–5');
