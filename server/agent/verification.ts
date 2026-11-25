@@ -40,7 +40,7 @@ export function schemaVerdict(value: unknown, schema: Record<string, unknown>, d
     if (schema.properties !== undefined && (!schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties))) return 'unknown';
     const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     for (const [key, entry] of Object.entries(value)) {
-      if (properties[key]) verdicts.push(typeof properties[key] === 'object' && !Array.isArray(properties[key]) ? schemaVerdict(entry, properties[key], depth + 1) : 'unknown');
+      if (Object.hasOwn(properties, key)) verdicts.push(properties[key] && typeof properties[key] === 'object' && !Array.isArray(properties[key]) ? schemaVerdict(entry, properties[key], depth + 1) : 'unknown');
       else if (schema.additionalProperties === false) return 'fail';
       else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') verdicts.push(schemaVerdict(entry, schema.additionalProperties as Record<string, unknown>, depth + 1));
     }

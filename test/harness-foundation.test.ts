@@ -53,6 +53,7 @@ test('schema subset does not turn unsupported or malformed constraints into a pa
   assert.equal(schemaVerdict('wrong', { type: 'integer' }), 'fail');
   assert.equal(schemaVerdict('abc', { pattern: '^b' }), 'unknown');
   assert.equal(schemaVerdict({ n: 1 }, { properties: { n: { type: 'number', maximum: 0 } } }), 'fail');
+  assert.equal(schemaVerdict(JSON.parse('{"__proto__":{"title":"unexpected"}}'), { type: 'object', properties: { title: { type: 'string' } }, additionalProperties: false }), 'fail');
 });
 
 test('validation gates completion and becomes stale after an output or criterion changes', async () => {
