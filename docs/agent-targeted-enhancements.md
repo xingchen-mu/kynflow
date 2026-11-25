@@ -2,6 +2,8 @@
 
 在第一阶段的 Trace / Evaluation / Feedback 上增强视觉验收、定向修复和上下文选择。没有增加新的 Agent 框架；继续使用当前模型、画布工具和 ComfyUI。
 
+实际前后对照、真实 GPU 结果与局限见 [第二阶段实测记录](agent-targeted-results.md)。
+
 ## 独立 Visual Critic 与逐条验收
 
 `visual_critic` 默认使用 `criteria-v2`：单独的模型调用，只输入目标、验收条目、媒体尺寸、编号图像与参考。创作对话、素材名称、生成提示词、Agent 自评和旧 Critic 分数均不进入审查请求。独立是上下文与工具权限隔离，仍使用当前配置的同一个多模态模型，并不保证不同模型之间的统计独立性。
