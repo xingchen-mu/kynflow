@@ -6,6 +6,7 @@ export interface BenchmarkStep { tool: string; args: Record<string, unknown> }
 export type BenchmarkCheck =
   | { kind: 'tool'; tools: string[]; where?: Record<string, TraceValue>; min?: number; max?: number; outcome?: 'success' | 'error' }
   | { kind: 'response'; pattern: string }
+  | { kind: 'plan'; orderedTerms: string[] }
   | { kind: 'preserve'; ids: string[] }
   | { kind: 'rename'; names: Record<string, string> }
   | { kind: 'generation'; min: number; max: number; reference?: string; allowFailures?: boolean }

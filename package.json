@@ -51,6 +51,7 @@
     "eval:agent": "node --import tsx scripts/eval-agent.ts",
     "benchmark:agent": "node --import tsx scripts/benchmark-agent.ts",
     "benchmark:agent:live": "node --import tsx scripts/benchmark-agent.ts --mode live --profile both",
+    "benchmark:agent:gpu": "node --import tsx scripts/benchmark-agent-gpu.ts",
     "smoke": "node scripts/smoke.mjs",
     "test:wf": "tsx scripts/test-workflow.ts",
     "build:presets": "tsx scripts/build-presets.ts"

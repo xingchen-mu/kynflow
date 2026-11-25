@@ -8,6 +8,7 @@ import { benchmarkSummary, compareBenchmark } from '../server/agent/evaluation/m
 import type { BenchmarkResult } from '../server/agent/evaluation/types.ts';
 import { SettingsStore } from '../server/settings.ts';
 import { redactTraceText } from '../server/agent/trace/redact.ts';
+import { MOCK_PROTOCOL_VERSION, MOCK_PROTOCOL_INSTRUCTIONS } from '../server/agent/evaluation/protocol.ts';
 
 const args = process.argv.slice(2);
 const value = (key: string) => { const index = args.indexOf(key); return index < 0 ? undefined : args[index + 1]; };
@@ -69,8 +70,8 @@ for (const currentProfile of profiles) for (const spec of cases) {
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 const report = { version: 2, startedAt, finishedAt: new Date().toISOString(), revision, sourceDirty, traceArtifacts: basename(artifactDirectory),
-  fixtureVersion: createHash('sha256').update(JSON.stringify(CORE_BENCHMARK_CASES)).digest('hex'),
-  environment: { mode, model: mode === 'scripted' ? 'benchmark/scripted-v1' : cfg.model, node: process.version, pi: '1.4.0', comfyUI: 'mock-v1 (real HTTP and TaskManager)', gpu: 'none', visualInputs: 'authored color/shape fixtures; generated visual quality is not scored', cost: 'provider catalog estimate; custom endpoint prices may be unknown' },
+  fixtureVersion: createHash('sha256').update(JSON.stringify({ cases: CORE_BENCHMARK_CASES, protocol: MOCK_PROTOCOL_VERSION, instructions: MOCK_PROTOCOL_INSTRUCTIONS })).digest('hex'),
+  environment: { mode, protocol: MOCK_PROTOCOL_VERSION, model: mode === 'scripted' ? 'benchmark/scripted-v1' : cfg.model, node: process.version, pi: '1.4.0', comfyUI: 'mock-v1 (real HTTP and TaskManager)', gpu: 'none', visualInputs: 'authored color/shape fixtures; generated visual quality is not scored', cost: 'provider catalog estimate; custom endpoint prices may be unknown' },
   summaries: Object.fromEntries(profiles.map((current) => [current, benchmarkSummary(results.filter((result) => result.profile === current))])), comparison: compareBenchmark(results), results,
   interpretation: mode === 'scripted' ? 'Protocol regressions with scripted model decisions; no claim about model ability.' : 'Live model decisions on fixed mock-environment tasks; visual perception covers simple authored shapes, not generated aesthetics or character identity. Ablation is a single sample per case, not causal proof.',
 };

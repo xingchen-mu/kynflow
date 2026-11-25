@@ -41,7 +41,7 @@ export const CORE_BENCHMARK_CASES: AgentBenchmarkCase[] = [
     { kind: 'tool', tools: ['record_review'], where: { 'entries.0.reason': 'text_wrong' }, min: 1 }, { kind: 'tool', tools: ['run_workflow', 'generate_image'], where: { retry_of: 'image-b', prompt: { pattern: 'MOON' } }, min: 1 },
   ], script: [step('record_review', { entries: [{ id: 'image-b', verdict: 'fail', reason: 'text_wrong', note: '文字应为 MOON' }] }), workflows('image_edit'), run('eval-edit-one', { image_ids: ['image-b'], prompt: '保留图中主体，将文字准确改为 MOON', retry_of: 'image-b' }), wait()], scriptedAnswer: '已记录文字错误并按 MOON 修正。', budget },
   { id: 'planning-before-generation', dimension: 'planning', request: '先为三镜头产品广告列出剧本、分镜、关键帧和视频的制作步骤，只做计划，不生成。', selection: [], checks: [
-    { kind: 'tool', tools: ['update_todos', 'update_task_graph', 'present_plan'], min: 1 }, { kind: 'generation', min: 0, max: 0 },
+    { kind: 'plan', orderedTerms: ['剧本', '分镜', '关键帧', '视频'] }, { kind: 'generation', min: 0, max: 0 },
   ], script: [step('update_todos', { todos: ['剧本', '分镜', '关键帧', '视频'].map((content) => ({ content, status: 'pending' })) })], scriptedAnswer: '先确认剧本，再做分镜、关键帧和视频。', budget },
   { id: 'planning-shared-reference', dimension: 'planning', request: '以选中的原图为统一参考，批量生成三张同产品宣传图，分别是主视觉、细节图和场景图。每张都必须使用原图，不需要视频。', selection: ['image-a'], checks: [
     { kind: 'generation', min: 3, max: 3, reference: 'image-a' }, { kind: 'preserve', ids: ['image-a', 'image-b', 'image-c'] },

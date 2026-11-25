@@ -21,6 +21,15 @@ function checkCase(check: BenchmarkCheck, observation: BenchmarkObservation, eve
     return { passed: successes.length >= (check.min ?? 0) && calls.length <= (check.max ?? Infinity), detail: `${successes.length} matching ${check.outcome ?? 'success'} calls; ${calls.length} total attempts` };
   }
   if (check.kind === 'response') return { passed: new RegExp(check.pattern, 'i').test(response), detail: `Response must match ${check.pattern}` };
+  if (check.kind === 'plan') {
+    const candidates = [response, ...events.filter((event) => event.type === 'tool_start' && ['update_todos', 'update_task_graph', 'present_plan', 'write_note'].includes(event.tool ?? '') && events.some((end) => end.type === 'tool_end' && end.callId === event.callId && end.ok === true)).map((event) => JSON.stringify(event.arguments))];
+    const passed = candidates.some((text) => {
+      let at = 0;
+      for (const term of check.orderedTerms) { const next = text.indexOf(term, at); if (next < 0) return false; at = next + term.length; }
+      return true;
+    });
+    return { passed, detail: `Plan must cover the requested stages in order: ${check.orderedTerms.join(' → ')}` };
+  }
   if (check.kind === 'preserve') {
     const content = (item: typeof observation.before[number] | undefined) => {
       if (!item) return undefined;

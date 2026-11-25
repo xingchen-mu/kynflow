@@ -21,4 +21,12 @@ test('all twenty authored cases execute against Mock ComfyUI with baseline and e
       if (spec.setup === 'offline') assert.equal(mockRequests, 0);
     });
   }
+  await t.test('unavailable editing also blocks the built-in Qwen reference tool', async () => {
+    const spec = { ...CORE_BENCHMARK_CASES[0], setup: 'upscale_only' as const,
+      script: [{ tool: 'generate_image', args: { prompt: 'change background', reference_ids: ['image-a'], aspect: '1:1' } }] };
+    const { observation, mockRequests } = await runBenchmarkCase(spec, { mode: 'scripted', profile: 'baseline' });
+    assert.equal(mockRequests, 0);
+    assert.equal(observation.tasks.length, 0);
+    assert.ok(observation.traces.flatMap((trace) => trace.events).some((event) => event.type === 'tool_end' && event.tool === 'generate_image' && event.ok === false));
+  });
 });

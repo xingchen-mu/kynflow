@@ -13,6 +13,7 @@ import { MemoryStore } from '../memory.ts';
 import { MockComfyServer, benchmarkWorkflows } from './mock-comfy.ts';
 import { evaluateBenchmark } from './metrics.ts';
 import type { AgentBenchmarkCase, BenchmarkObservation } from './types.ts';
+import { MOCK_PROTOCOL_INSTRUCTIONS } from './protocol.ts';
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -39,10 +40,12 @@ export async function runBenchmarkCase(spec: AgentBenchmarkCase, options: { mode
   const workflows = benchmarkWorkflows().filter((workflow) => spec.setup !== 'upscale_only' || workflow.id === 'eval-upscale');
   const tasks = new TaskManager(client, assets, (id) => workflows.find((workflow) => workflow.id === id), () => undefined);
   mock.onEvent = (event) => tasks.onComfyEvent(event);
+  const unavailable: Record<string, string[]> = spec.setup === 'upscale_only' ? { 'image.generate:qwen': ['Reference-image generation is unavailable in this fixture'] } : {};
   const deps = { assets, projects, tasks, workflows: () => workflows,
-    capabilities: async () => ({ comfyOnline: spec.setup !== 'offline', comfyUrl: mock.url, features: {}, models: {} }),
+    capabilities: async () => ({ comfyOnline: spec.setup !== 'offline', comfyUrl: mock.url,
+      features: unavailable, models: {} }),
     changed: () => {}, commercialOnly: () => false };
-  const opts: AgentHubOptions = { profile: options.profile, generationEnvironment: 'mock', budget: { ...spec.budget, maxOutputTokens: 2500 } };
+  const opts: AgentHubOptions = { profile: options.profile, generationEnvironment: 'mock', evaluationInstructions: MOCK_PROTOCOL_INSTRUCTIONS, budget: { ...spec.budget, maxOutputTokens: 2500 } };
   let settings: SettingsStore | undefined;
   if (options.mode === 'scripted') {
     const faux = fauxProvider({ provider: 'benchmark', models: [{ id: 'scripted-v1', input: ['text', 'image'], contextWindow: 200000 }] });

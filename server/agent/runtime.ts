@@ -55,6 +55,8 @@ export interface AgentHubOptions {
   /** Evaluation ablation; normal app sessions use enhanced. */
   profile?: AgentHarnessProfile;
   generationEnvironment?: 'comfyui' | 'mock';
+  /** Runner-supplied environment contract; absent in normal application sessions. */
+  evaluationInstructions?: string;
   budget?: { toolCalls?: number; modelCalls?: number; tokens?: number; cost?: number; durationMs?: number; maxOutputTokens?: number };
 }
 
@@ -934,7 +936,7 @@ export class AgentHub {
 
   /** The instructions with the memory after them: set when a conversation opens and after condensing, so the cache holds. */
   private async promptFor(s: Pick<Session, 'projectId' | 'commercial' | 'lang'>): Promise<string> {
-    return `${systemPrompt(this.state.vision, s.commercial, s.lang, this.opts.profile !== 'baseline')}\n\n${this.opts.profile !== 'baseline' ? await this.skills.catalog() : ''}\n\n${await this.memoryText(s.projectId)}`;
+    return `${systemPrompt(this.state.vision, s.commercial, s.lang, this.opts.profile !== 'baseline')}\n\n${this.opts.profile !== 'baseline' ? await this.skills.catalog() : ''}\n\n${await this.memoryText(s.projectId)}${this.opts.evaluationInstructions ? `\n\n${this.opts.evaluationInstructions}` : ''}`;
   }
 
   /** The series this board is in, when any. */

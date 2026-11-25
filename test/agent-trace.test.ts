@@ -136,3 +136,21 @@ test('run trace truncation is explicit and cannot be scored as complete executio
   assert.equal(trace.droppedEvents, 1);
   assert.ok(evaluateBenchmark(CORE_BENCHMARK_CASES[0], { traces: [trace], before: [], after: [], tasks: [] }, 'enhanced', 'scripted').failures.some((failure) => failure.includes('truncated')));
 });
+
+test('planning accepts a complete ordered note while rejecting missing or reversed stages', async (t) => {
+  const { store, recorder } = await fixture(t);
+  const spec = { ...CORE_BENCHMARK_CASES[0], checks: [{ kind: 'plan' as const, orderedTerms: ['剧本', '分镜', '关键帧', '视频'] }] };
+  await recorder.append(metadata.projectId, event('tool_start', { tool: 'write_note', callId: 'plan-note', arguments: { text: '1. 剧本；2. 分镜；3. 关键帧；4. 视频。' } }));
+  await recorder.append(metadata.projectId, event('tool_end', { tool: 'write_note', callId: 'plan-note', ok: true }));
+  await recorder.append(metadata.projectId, event('run_end', { ok: true }));
+  const trace = (await store.get(metadata.projectId, metadata.runId))!;
+  const assess = () => evaluateBenchmark(spec, { traces: [trace], before: [], after: [], tasks: [] }, 'baseline', 'live').checks[0].passed;
+  assert.equal(assess(), true);
+  trace.events[0].arguments = { text: '视频、关键帧、分镜、剧本' };
+  assert.equal(assess(), false);
+  trace.events[0].arguments = { text: '剧本、分镜、视频' };
+  assert.equal(assess(), false);
+  trace.events[0].arguments = { text: '剧本、分镜、关键帧、视频' };
+  trace.events[1].ok = false;
+  assert.equal(assess(), false, 'a failed write is not a delivered plan');
+});
